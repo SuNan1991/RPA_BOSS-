@@ -1,0 +1,34 @@
+# FastAPI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# MongoDB
+motor==3.3.2
+pymongo==4.6.0
+
+# 数据验证
+pydantic==2.5.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+
+# 认证
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# CORS
+python-multipart==0.0.6
+
+# RPA 相关
+DrissionPage==4.0.0
+ddddocr==1.5.3
+Pillow==10.1.0
+
+# 工具
+httpx==0.25.2
+loguru==0.7.2
+apscheduler==3.10.4
+
+# 异步
+aiofiles==23.2.1

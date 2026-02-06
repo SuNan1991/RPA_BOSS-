@@ -1,9 +1,10 @@
 """
 配置文件
 """
-from typing import List
-from pydantic_settings import BaseSettings
+
 from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -19,12 +20,12 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
-    # MongoDB配置
-    MONGODB_URL: str = "mongodb://localhost:27017"
-    DATABASE_NAME: str = "boss_rpa"
+    # SQLite配置
+    SQLITE_DB_PATH: str = "data/boss_rpa.db"
 
     # CORS配置
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # 开发环境允许所有源，生产环境请限制具体域名
+    CORS_ORIGINS: list[str] = ["*"]  # 开发模式允许所有源
 
     # 日志配置
     LOG_LEVEL: str = "INFO"
@@ -42,7 +43,7 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """获取配置单例"""
     return Settings()

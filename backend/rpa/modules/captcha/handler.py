@@ -1,12 +1,14 @@
 """
 验证码处理模块 - 使用 ddddocr
 """
-from typing import Optional, Tuple
+
+import base64
+import io
 from pathlib import Path
+from typing import Optional
+
 import ddddocr
 from PIL import Image
-import io
-import base64
 
 from ...app.core.logging import get_logger
 
@@ -28,9 +30,9 @@ class CaptchaHandler:
         self.ocr = ddddocr.DdddOcr()
         self.logger = logger
 
-    def识别滑块验证码(
+    def recognize_slide_captcha(
         self, bg_image: bytes, slider_image: bytes
-    ) -> Optional[Tuple[int, int]]:
+    ) -> Optional[tuple[int, int]]:
         """
         识别滑块验证码
 
@@ -90,8 +92,11 @@ class CaptchaHandler:
         try:
             if not file_path:
                 import time
+
                 timestamp = int(time.time())
-                file_path = Path(__file__).parent.parent.parent.parent / "logs" / f"captcha_{timestamp}.png"
+                file_path = (
+                    Path(__file__).parent.parent.parent.parent / "logs" / f"captcha_{timestamp}.png"
+                )
 
             file_path = Path(file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,7 +145,7 @@ class CaptchaHandler:
             Base64编码的字符串
         """
         try:
-            base64_str = base64.b64encode(image).decode('utf-8')
+            base64_str = base64.b64encode(image).decode("utf-8")
             return base64_str
 
         except Exception as e:

@@ -1,14 +1,16 @@
 """
 浏览器管理模块 - 基于 DrissionPage
 """
-from typing import Optional
-from DrissionPage import ChromiumPage, ChromiumOptions
-from pathlib import Path
-import time
-import json
 
-from ...app.core.logging import get_logger
+import json
+import time
+from pathlib import Path
+from typing import Optional
+
+from DrissionPage import ChromiumOptions, ChromiumPage
+
 from ...app.core.config import settings
+from ...app.core.logging import get_logger
 
 logger = get_logger("browser")
 
@@ -48,7 +50,7 @@ class BrowserManager:
 
             # 设置无头模式
             if headless:
-                co.set_argument('--headless')
+                co.set_argument("--headless")
 
             # 设置用户数据目录
             if user_data_path:
@@ -64,9 +66,9 @@ class BrowserManager:
                 co.set_proxy(proxy)
 
             # 禁用自动化检测
-            co.set_argument('--disable-blink-features=AutomationControlled')
-            co.set_argument('--no-sandbox')
-            co.set_argument('--disable-dev-shm-usage')
+            co.set_argument("--disable-blink-features=AutomationControlled")
+            co.set_argument("--no-sandbox")
+            co.set_argument("--disable-dev-shm-usage")
 
             # 设置超时
             co.set_timeout(settings.RPA_TIMEOUT)
@@ -121,7 +123,7 @@ class BrowserManager:
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
             cookies = self.page.cookies(as_dict=True)
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(cookies, f, ensure_ascii=False, indent=2)
 
             logger.info(f"Cookies saved to {file_path}")
@@ -155,7 +157,7 @@ class BrowserManager:
                 logger.warning(f"Cookie file not found: {file_path}")
                 return False
 
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 cookies = json.load(f)
 
             # 先访问目标域名
@@ -190,7 +192,9 @@ class BrowserManager:
 
             if not file_path:
                 timestamp = int(time.time())
-                file_path = Path(__file__).parent.parent.parent / "logs" / f"screenshot_{timestamp}.png"
+                file_path = (
+                    Path(__file__).parent.parent.parent / "logs" / f"screenshot_{timestamp}.png"
+                )
 
             file_path = Path(file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,14 +1,16 @@
 """
 FastAPI 主应用
 """
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+
 from contextlib import asynccontextmanager
 
-from .core.config import settings
-from .core.database import db
-from .core.logging import logger
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from .api import api_router
+from .core.config import settings
+from .core.database import db, init_database
+from .core.logging import logger
 
 
 @asynccontextmanager
@@ -16,11 +18,12 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     logger.info("Starting up...")
-    db.connect()
+    await db.connect()
+    await init_database()
     yield
     # 关闭时
     logger.info("Shutting down...")
-    db.close()
+    await db.close()
 
 
 # 创建应用

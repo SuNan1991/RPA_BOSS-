@@ -1,11 +1,13 @@
 """
 BOSS直聘登录模块
 """
-from typing import Dict, Any, Optional
-from ..core.base import BaseModule
-from ..modules.captcha import CaptchaHandler, SlideTrackGenerator
+
+from typing import Any, Optional
+
 from ...app.core.config import settings
 from ...app.core.logging import get_logger
+from ..core.base import BaseModule
+from ..modules.captcha import CaptchaHandler, SlideTrackGenerator
 
 logger = get_logger("boss_login")
 
@@ -21,7 +23,7 @@ class BossLoginModule(BaseModule):
 
     def execute(
         self, phone: str, password: str, use_cookie: bool = True, **kwargs
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         执行登录
 
@@ -59,7 +61,7 @@ class BossLoginModule(BaseModule):
             self.save_screenshot()  # 保存错误截图
             return {"success": False, "message": f"登录失败: {str(e)}", "method": "password"}
 
-    def _login_by_password(self, page, phone: str, password: str) -> Dict[str, Any]:
+    def _login_by_password(self, page, phone: str, password: str) -> dict[str, Any]:
         """
         通过密码登录
 
@@ -80,17 +82,17 @@ class BossLoginModule(BaseModule):
             self.wait(1)
 
             # 切换到密码登录
-            password_tab = page.ele('css:.job-seeker-login .pwd-login-wrap', timeout=5)
+            password_tab = page.ele("css:.job-seeker-login .pwd-login-wrap", timeout=5)
             if password_tab:
                 self.logger.info("Switching to password login mode")
                 # 点击密码登录标签
-                pwd_tab = page.ele('css:.job-seeker-login .fl-tab-item:nth-child(2)')
+                pwd_tab = page.ele("css:.job-seeker-login .fl-tab-item:nth-child(2)")
                 if pwd_tab:
                     pwd_tab.click()
                     self.wait(0.5)
 
             # 输入手机号
-            phone_input = page.ele('css:#phone', timeout=5)
+            phone_input = page.ele("css:#phone", timeout=5)
             if not phone_input:
                 return {"success": False, "message": "未找到手机号输入框", "method": "password"}
 
@@ -98,7 +100,7 @@ class BossLoginModule(BaseModule):
             self.logger.info(f"Phone number entered: {phone}")
 
             # 输入密码
-            password_input = page.ele('css:#pwd', timeout=5)
+            password_input = page.ele("css:#pwd", timeout=5)
             if not password_input:
                 return {"success": False, "message": "未找到密码输入框", "method": "password"}
 
@@ -106,7 +108,7 @@ class BossLoginModule(BaseModule):
             self.logger.info("Password entered")
 
             # 点击登录按钮
-            login_button = page.ele('css:.job-seeker-login .btn-login', timeout=5)
+            login_button = page.ele("css:.job-seeker-login .btn-login", timeout=5)
             if not login_button:
                 return {"success": False, "message": "未找到登录按钮", "method": "password"}
 
@@ -156,9 +158,9 @@ class BossLoginModule(BaseModule):
         """
         try:
             # 检查滑块验证码元素
-            captcha = page.ele('css:.verify-wrap', timeout=2)
+            captcha = page.ele("css:.verify-wrap", timeout=2)
             return captcha is not None
-        except:
+        except Exception:
             return False
 
     def _handle_slide_captcha(self, page) -> bool:
@@ -176,13 +178,13 @@ class BossLoginModule(BaseModule):
             self.wait(1)
 
             # 获取滑块元素
-            slider = page.ele('css:.verify-slider img', timeout=5)
+            slider = page.ele("css:.verify-slider img", timeout=5)
             if not slider:
                 self.logger.warning("Slider element not found")
                 return False
 
             # 获取背景图
-            bg_canvas = page.ele('css:.verify-canvas canvas', timeout=5)
+            bg_canvas = page.ele("css:.verify-canvas canvas", timeout=5)
             if not bg_canvas:
                 self.logger.warning("Background canvas not found")
                 return False
@@ -192,7 +194,7 @@ class BossLoginModule(BaseModule):
             track = self.track_generator.generate_curve_track(distance=200)
 
             # 执行拖动
-            slider = page.ele('css:.verify-slider', timeout=5)
+            slider = page.ele("css:.verify-slider", timeout=5)
             if slider:
                 # 使用DrissionPage的拖动功能
                 # 这里简化处理，实际需要根据页面结构调整
@@ -229,7 +231,7 @@ class BossLoginModule(BaseModule):
             self.wait(1)
 
             # 检查是否有用户信息元素
-            user_nav = page.ele('css:.user-nav', timeout=5)
+            user_nav = page.ele("css:.user-nav", timeout=5)
             return user_nav is not None
 
         except Exception as e:
@@ -247,9 +249,9 @@ class BossLoginModule(BaseModule):
             错误信息
         """
         try:
-            error_ele = page.ele('css:.job-seeker-login .error-msg', timeout=2)
+            error_ele = page.ele("css:.job-seeker-login .error-msg", timeout=2)
             if error_ele:
                 return error_ele.text
             return None
-        except:
+        except Exception:
             return None

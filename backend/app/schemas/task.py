@@ -1,8 +1,10 @@
 """
 任务相关数据模型
 """
-from typing import Optional
+
 from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -16,11 +18,13 @@ class TaskBase(BaseModel):
 
 class TaskCreate(TaskBase):
     """创建任务"""
+
     pass
 
 
 class TaskUpdate(BaseModel):
     """更新任务"""
+
     status: Optional[str] = Field(None, description="状态")
     config: Optional[dict] = Field(None, description="任务配置")
     result: Optional[dict] = Field(None, description="任务结果")
@@ -28,7 +32,8 @@ class TaskUpdate(BaseModel):
 
 class TaskResponse(TaskBase):
     """任务响应"""
-    id: str = Field(..., description="任务ID")
+
+    id: int = Field(..., description="任务ID")
     status: str = Field(default="pending", description="状态: pending, running, completed, failed")
     result: Optional[dict] = Field(None, description="任务结果")
     error_message: Optional[str] = Field(None, description="错误信息")
@@ -38,10 +43,10 @@ class TaskResponse(TaskBase):
     class Config:
         json_schema_extra = {
             "example": {
-                "id": "123",
+                "id": 1,
                 "name": "自动投递任务",
                 "task_type": "auto_apply",
                 "status": "running",
-                "config": {"keyword": "Python", "city": "北京"}
+                "config": {"keyword": "Python", "city": "北京"},
             }
         }

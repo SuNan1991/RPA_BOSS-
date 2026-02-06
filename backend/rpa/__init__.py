@@ -1,8 +1,9 @@
 """
 RPA自动化模块
 """
+
 from .core import BaseModule, browser_manager
-from .modules import BossLoginModule, JobSearchModule, AutoChatModule
+from .modules import AutoChatModule, BossLoginModule, JobSearchModule
 
 __all__ = [
     "BaseModule",

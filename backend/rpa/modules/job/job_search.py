@@ -1,10 +1,12 @@
 """
 BOSS直聘职位搜索模块
 """
-from typing import Dict, Any, List, Optional
-from ..core.base import BaseModule
+
+from typing import Any, Optional
+
 from ...app.core.config import settings
 from ...app.core.logging import get_logger
+from ..core.base import BaseModule
 
 logger = get_logger("job_search")
 
@@ -25,7 +27,7 @@ class JobSearchModule(BaseModule):
         salary: Optional[str] = None,
         max_pages: int = 1,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         执行职位搜索
 
@@ -128,7 +130,7 @@ class JobSearchModule(BaseModule):
 
         return url
 
-    def _parse_job_list(self, page) -> List[Dict[str, Any]]:
+    def _parse_job_list(self, page) -> list[dict[str, Any]]:
         """
         解析职位列表
 
@@ -141,7 +143,7 @@ class JobSearchModule(BaseModule):
         jobs = []
         try:
             # 查找职位列表元素
-            job_elements = page.eles('css:.job-card-wrapper', timeout=10)
+            job_elements = page.eles("css:.job-card-wrapper", timeout=10)
 
             self.logger.info(f"Found {len(job_elements)} job elements")
 
@@ -159,7 +161,7 @@ class JobSearchModule(BaseModule):
 
         return jobs
 
-    def _parse_job_item(self, job_ele) -> Optional[Dict[str, Any]]:
+    def _parse_job_item(self, job_ele) -> Optional[dict[str, Any]]:
         """
         解析单个职位信息
 
@@ -171,30 +173,30 @@ class JobSearchModule(BaseModule):
         """
         try:
             # 职位名称
-            job_name_ele = job_ele.ele('css:.job-title', timeout=1)
+            job_name_ele = job_ele.ele("css:.job-title", timeout=1)
             job_name = job_name_ele.text if job_name_ele else ""
 
             # 薪资
-            salary_ele = job_ele.ele('css:.salary', timeout=1)
+            salary_ele = job_ele.ele("css:.salary", timeout=1)
             salary = salary_ele.text if salary_ele else ""
 
             # 公司信息
-            company_ele = job_ele.ele('css:.company-name a', timeout=1)
+            company_ele = job_ele.ele("css:.company-name a", timeout=1)
             company_name = company_ele.text if company_ele else ""
 
             # 职位链接
-            link_ele = job_ele.ele('css:.job-card-left', timeout=1)
-            job_url = link_ele.attr('href') if link_ele else ""
-            if job_url and not job_url.startswith('http'):
+            link_ele = job_ele.ele("css:.job-card-left", timeout=1)
+            job_url = link_ele.attr("href") if link_ele else ""
+            if job_url and not job_url.startswith("http"):
                 job_url = self.base_url + job_url
 
             # 区域
-            area_ele = job_ele.ele('css:.job-area', timeout=1)
+            area_ele = job_ele.ele("css:.job-area", timeout=1)
             area = area_ele.text if area_ele else ""
 
             # 标签 (经验、学历等)
             tags = []
-            tag_eles = job_ele.eles('css:.job-info .tag-list li', timeout=1)
+            tag_eles = job_ele.eles("css:.job-info .tag-list li", timeout=1)
             for tag_ele in tag_eles:
                 tag_text = tag_ele.text
                 if tag_text:
@@ -205,11 +207,11 @@ class JobSearchModule(BaseModule):
             education = tags[1] if len(tags) > 1 else None
 
             # 行业和公司规模
-            industry_ele = job_ele.ele('css:.job-info .company-tag-list', timeout=1)
+            industry_ele = job_ele.ele("css:.job-info .company-tag-list", timeout=1)
             industry = industry_ele.text if industry_ele else ""
 
             # BOSS信息
-            boss_ele = job_ele.ele('css:.boss-info', timeout=1)
+            boss_ele = job_ele.ele("css:.boss-info", timeout=1)
             boss_title = boss_ele.text if boss_ele else ""
 
             return {
@@ -218,7 +220,7 @@ class JobSearchModule(BaseModule):
                 "company_name": company_name,
                 "job_url": job_url,
                 "area": area,
-                "city": area.split('·')[0] if '·' in area else area,
+                "city": area.split("·")[0] if "·" in area else area,
                 "experience": experience,
                 "education": education,
                 "industry": industry,
@@ -229,7 +231,7 @@ class JobSearchModule(BaseModule):
             self.logger.warning(f"Error parsing job item: {e}")
             return None
 
-    def get_job_detail(self, job_url: str, **kwargs) -> Dict[str, Any]:
+    def get_job_detail(self, job_url: str, **kwargs) -> dict[str, Any]:
         """
         获取职位详情
 
@@ -247,7 +249,7 @@ class JobSearchModule(BaseModule):
             page = self.browser.get_page()
 
             # 访问职位详情页
-            if not job_url.startswith('http'):
+            if not job_url.startswith("http"):
                 job_url = self.base_url + job_url
 
             page.get(job_url, retry=2, timeout=15)
@@ -262,7 +264,7 @@ class JobSearchModule(BaseModule):
             self.logger.error(f"Failed to get job detail: {e}")
             return {"success": False, "message": str(e)}
 
-    def _parse_job_detail(self, page) -> Dict[str, Any]:
+    def _parse_job_detail(self, page) -> dict[str, Any]:
         """
         解析职位详情
 
@@ -274,11 +276,11 @@ class JobSearchModule(BaseModule):
         """
         try:
             # 职位描述
-            jd_ele = page.ele('css:.job-sec-text', timeout=5)
+            jd_ele = page.ele("css:.job-sec-text", timeout=5)
             job_description = jd_ele.text if jd_ele else ""
 
             # 公司地址
-            address_ele = page.ele('css:.job-location .location-address', timeout=5)
+            address_ele = page.ele("css:.job-location .location-address", timeout=5)
             address = address_ele.text if address_ele else ""
 
             return {

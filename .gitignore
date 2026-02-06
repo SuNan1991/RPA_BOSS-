@@ -36,6 +36,9 @@ dist-ssr/
 data/
 logs/
 *.log
+*.db
+*.sqlite
+*.sqlite3
 
 # 浏览器数据
 backend/data/browser_data/
@@ -44,3 +47,6 @@ backend/data/browser_data/
 *.tmp
 *.bak
 .cache/
+
+# Pre-commit
+.pre-commit-cache/

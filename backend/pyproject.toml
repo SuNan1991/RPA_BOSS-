@@ -22,6 +22,7 @@ dependencies = [
     "loguru>=0.7.2",
     "apscheduler>=3.10.4",
     "aiofiles>=23.2.1",
+    "aiosqlite>=0.22.1",
 ]
 
 [dependency-groups]
@@ -31,6 +32,7 @@ dev = [
     "black>=23.12.1",
     "ruff>=0.1.9",
     "mypy>=1.8.0",
+    "pre-commit>=4.0.0",
 ]
 
 [build-system]
@@ -47,8 +49,15 @@ target-version = ["py39", "py310", "py311", "py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501"]
+ignore = ["E501", "N802"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.9"

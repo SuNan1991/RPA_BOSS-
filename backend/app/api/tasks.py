@@ -1,13 +1,15 @@
 """
 任务相关API
 """
+
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, BackgroundTasks
-from motor.motor_asyncio import AsyncIOMotorDatabase
+
+import aiosqlite
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
 from ..core.database import get_database
-from ..core.responses import success_response, error_response
-from ..schemas.task import TaskCreate, TaskUpdate, TaskResponse
+from ..core.responses import error_response, success_response
+from ..schemas.task import TaskCreate, TaskUpdate
 from ..services import TaskService
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -17,7 +19,7 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 async def create_task(
     task: TaskCreate,
     background_tasks: BackgroundTasks,
-    db: AsyncIOMotorDatabase = Depends(get_database),
+    db: aiosqlite.Connection = Depends(get_database),
 ):
     """创建任务"""
     service = TaskService(db)
@@ -30,9 +32,7 @@ async def create_task(
 
 
 @router.get("/{task_id}", response_model=dict)
-async def get_task(
-    task_id: str, db: AsyncIOMotorDatabase = Depends(get_database)
-):
+async def get_task(task_id: int, db: aiosqlite.Connection = Depends(get_database)):
     """获取任务详情"""
     service = TaskService(db)
     result = await service.get_by_id(task_id)
@@ -47,7 +47,7 @@ async def get_tasks(
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     status: Optional[str] = Query(None, description="状态"),
     task_type: Optional[str] = Query(None, description="任务类型"),
-    db: AsyncIOMotorDatabase = Depends(get_database),
+    db: aiosqlite.Connection = Depends(get_database),
 ):
     """获取任务列表"""
     skip = (page - 1) * page_size
@@ -69,9 +69,9 @@ async def get_tasks(
 
 @router.put("/{task_id}", response_model=dict)
 async def update_task(
-    task_id: str,
+    task_id: int,
     task: TaskUpdate,
-    db: AsyncIOMotorDatabase = Depends(get_database),
+    db: aiosqlite.Connection = Depends(get_database),
 ):
     """更新任务"""
     service = TaskService(db)
@@ -82,9 +82,7 @@ async def update_task(
 
 
 @router.delete("/{task_id}", response_model=dict)
-async def delete_task(
-    task_id: str, db: AsyncIOMotorDatabase = Depends(get_database)
-):
+async def delete_task(task_id: int, db: aiosqlite.Connection = Depends(get_database)):
     """删除任务"""
     service = TaskService(db)
     result = await service.delete(task_id)
@@ -95,9 +93,9 @@ async def delete_task(
 
 @router.post("/{task_id}/execute", response_model=dict)
 async def execute_task_endpoint(
-    task_id: str,
+    task_id: int,
     background_tasks: BackgroundTasks,
-    db: AsyncIOMotorDatabase = Depends(get_database),
+    db: aiosqlite.Connection = Depends(get_database),
 ):
     """执行任务"""
     service = TaskService(db)

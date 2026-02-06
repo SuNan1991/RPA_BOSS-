@@ -7,7 +7,8 @@
 ### 后端
 - **FastAPI**: 高性能异步 Web 框架
 - **DrissionPage**: 强大的浏览器自动化框架
-- **MongoDB**: 文档型数据库
+- **SQLite**: 轻量级关系型数据库
+- **aiosqlite**: 异步 SQLite 驱动
 - **ddddocr**: 开源验证码识别库
 - **uv**: 极速 Python 包管理器 (推荐)
 
@@ -26,10 +27,10 @@ BOSS_RPA/
 │   ├── app/                   # FastAPI应用
 │   │   ├── api/              # API路由
 │   │   ├── core/             # 核心配置
-│   │   ├── models/           # MongoDB模型
 │   │   ├── schemas/          # Pydantic模式
 │   │   ├── services/         # 业务逻辑
 │   │   └── main.py           # 应用入口
+│   ├── data/                 # SQLite数据库文件
 │   ├── rpa/                  # RPA自动化模块
 │   │   ├── core/             # 核心模块
 │   │   └── modules/          # 功能模块
@@ -37,6 +38,8 @@ BOSS_RPA/
 │   │       ├── login/        # 登录模块
 │   │       ├── job/          # 职位搜索
 │   │       └── chat/         # 自动聊天
+│   ├── scripts/              # 工具脚本
+│   │   └── migrate_mongodb_to_sqlite.py  # 数据迁移脚本
 │   ├── pyproject.toml        # Python项目配置
 │   └── requirements.txt      # Python依赖 (兼容pip)
 ├── frontend/                  # 前端应用
@@ -47,7 +50,6 @@ BOSS_RPA/
 │   │   ├── router/          # 路由配置
 │   │   └── main.ts          # 应用入口
 │   └── package.json         # Node依赖
-├── data/                     # 数据目录
 ├── logs/                     # 日志目录
 └── README.md
 ```
@@ -58,7 +60,7 @@ BOSS_RPA/
 - [x] 模块化项目架构
 - [x] FastAPI 后端框架
 - [x] Vue 3 前端框架
-- [x] MongoDB 数据库集成
+- [x] SQLite 数据库集成
 - [x] DrissionPage 浏览器管理
 - [x] 滑块验证码识别 (ddddocr)
 - [x] BOSS直聘登录模块
@@ -76,7 +78,6 @@ BOSS_RPA/
 ### 环境要求
 - Python 3.9+
 - Node.js 16+
-- MongoDB 4.4+
 - uv (推荐) 或 pip
 
 ### 一键安装
@@ -150,9 +151,8 @@ npm run dev
 APP_NAME=BOSS_RPA
 DEBUG=True
 
-# MongoDB配置
-MONGODB_URL=mongodb://localhost:27017
-DATABASE_NAME=boss_rpa
+# SQLite配置
+SQLITE_DB_PATH=data/boss_rpa.db
 
 # RPA配置
 RPA_HEADLESS=False
@@ -176,6 +176,38 @@ BOSS_URL=https://www.zhipin.com
 ### 4. 自动聊天
 配置问候语模板，自动向HR打招呼。
 
+## 数据库
+
+### SQLite 数据库
+
+应用使用 SQLite 作为数据库，数据文件位于 `backend/data/boss_rpa.db`。
+
+#### 首次启动
+
+首次启动时，应用会自动创建数据库文件并初始化表结构。
+
+#### 从 MongoDB 迁移
+
+如果你有现有的 MongoDB 数据，可以使用迁移脚本：
+
+```bash
+cd backend
+python scripts/migrate_mongodb_to_sqlite.py
+```
+
+迁移前请确保：
+1. MongoDB 正在运行
+2. 已备份 MongoDB 数据
+3. SQLite 数据库文件不存在（或已删除）
+
+#### 数据备份
+
+备份 SQLite 数据库只需复制文件：
+
+```bash
+cp backend/data/boss_rpa.db backend/data/boss_rpa.db.backup
+```
+
 ## 注意事项
 
 1. **验证码处理**: 当前使用 ddddocr 处理简单滑块验证码，复杂验证码可能需要人工处理。
@@ -184,6 +216,80 @@ BOSS_URL=https://www.zhipin.com
 4. **法律合规**: 请确保使用本系统遵守相关法律法规和平台使用协议。
 
 ## 开发说明
+
+### Git Hooks (代码质量保障)
+
+本项目使用 [pre-commit](https://pre-commit.com/) 框架管理 Git hooks，自动在提交和推送时检查代码质量。
+
+#### 一键安装 hooks
+
+```bash
+# 安装 pre-commit (使用 uv)
+cd backend
+uv sync --group dev
+
+# 安装所有 Git hooks (pre-commit + commit-msg + pre-push)
+pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+```
+
+或者使用 pip:
+
+```bash
+pip install pre-commit
+pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+```
+
+#### Hook 说明
+
+| Hook 阶段 | 检查内容 | 运行时机 |
+|-----------|---------|---------|
+| **pre-commit** | 文件格式 (空白、换行、YAML/JSON 校验)、Python lint + format (ruff)、大文件检测、密钥检测 | 每次 `git commit` |
+| **commit-msg** | 提交信息格式 ([Conventional Commits](https://www.conventionalcommits.org/)) | 每次 `git commit` |
+| **pre-push** | Python 测试 (pytest)、Python 类型检查 (mypy)、前端类型检查 (vue-tsc) | 每次 `git push` |
+
+#### Conventional Commits 格式
+
+提交信息必须遵循以下格式:
+
+```
+type(scope): description
+
+# 示例
+feat(login): 添加手机验证码登录支持
+fix(api): 修复任务列表分页错误
+docs: 更新部署文档
+chore: 更新依赖版本
+refactor(rpa): 重构浏览器管理模块
+```
+
+允许的类型: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`, `revert`
+
+#### 跳过 hooks (紧急情况)
+
+```bash
+# 跳过 pre-commit 和 commit-msg hooks
+git commit --no-verify -m "emergency fix"
+
+# 跳过 pre-push hooks
+git push --no-verify
+```
+
+#### 更新 hook 版本
+
+```bash
+pre-commit autoupdate
+```
+
+#### 手动运行所有 hooks
+
+```bash
+# 对所有文件运行 pre-commit hooks
+pre-commit run --all-files
+
+# 运行特定 hook
+pre-commit run ruff --all-files
+pre-commit run ruff-format --all-files
+```
 
 ### uv 常用命令
 

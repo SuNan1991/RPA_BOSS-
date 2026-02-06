@@ -1,10 +1,12 @@
 """
 统一响应模型
 """
-from typing import Optional, Any, Generic, TypeVar
+
+from typing import Any, Generic, Optional, TypeVar
+
 from pydantic import BaseModel, Field
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ResponseModel(BaseModel, Generic[T]):
@@ -15,13 +17,7 @@ class ResponseModel(BaseModel, Generic[T]):
     data: Optional[T] = Field(default=None, description="响应数据")
 
     class Config:
-        json_schema_extra = {
-            "example": {
-                "code": 200,
-                "message": "success",
-                "data": None
-            }
-        }
+        json_schema_extra = {"example": {"code": 200, "message": "success", "data": None}}
 
 
 class PageResponse(BaseModel, Generic[T]):
@@ -37,17 +33,9 @@ class PageResponse(BaseModel, Generic[T]):
 
 def success_response(data: Any = None, message: str = "success", code: int = 200) -> dict:
     """成功响应"""
-    return {
-        "code": code,
-        "message": message,
-        "data": data
-    }
+    return {"code": code, "message": message, "data": data}
 
 
 def error_response(message: str = "error", code: int = 500, data: Any = None) -> dict:
     """错误响应"""
-    return {
-        "code": code,
-        "message": message,
-        "data": data
-    }
+    return {"code": code, "message": message, "data": data}

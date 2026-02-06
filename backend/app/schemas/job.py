@@ -1,8 +1,10 @@
 """
 职位相关数据模型
 """
-from typing import Optional, List
+
 from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -24,11 +26,13 @@ class JobBase(BaseModel):
 
 class JobCreate(JobBase):
     """创建职位"""
+
     pass
 
 
 class JobUpdate(BaseModel):
     """更新职位"""
+
     status: Optional[str] = Field(None, description="状态")
     is_applied: Optional[bool] = Field(None, description="是否已投递")
     notes: Optional[str] = Field(None, description="备注")
@@ -36,7 +40,8 @@ class JobUpdate(BaseModel):
 
 class JobResponse(JobBase):
     """职位响应"""
-    id: str = Field(..., description="职位ID")
+
+    id: int = Field(..., description="职位ID")
     status: str = Field(default="pending", description="状态")
     is_applied: bool = Field(default=False, description="是否已投递")
     notes: Optional[str] = Field(None, description="备注")
@@ -46,7 +51,7 @@ class JobResponse(JobBase):
     class Config:
         json_schema_extra = {
             "example": {
-                "id": "123",
+                "id": 1,
                 "job_name": "Python开发工程师",
                 "company_name": "科技公司",
                 "salary": "15-25K",
@@ -59,6 +64,7 @@ class JobResponse(JobBase):
 
 class JobFilter(BaseModel):
     """职位筛选"""
+
     city: Optional[str] = None
     keyword: Optional[str] = None
     experience: Optional[str] = None

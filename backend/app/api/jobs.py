@@ -1,22 +1,22 @@
 """
 职位相关API
 """
+
 from typing import Optional
+
+import aiosqlite
 from fastapi import APIRouter, Depends, Query
-from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from ..core.database import get_database
-from ..core.responses import PageResponse, success_response, error_response
-from ..schemas.job import JobCreate, JobUpdate, JobResponse, JobFilter
+from ..core.responses import error_response, success_response
+from ..schemas.job import JobCreate, JobUpdate
 from ..services import JobService
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
 @router.post("/", response_model=dict)
-async def create_job(
-    job: JobCreate, db: AsyncIOMotorDatabase = Depends(get_database)
-):
+async def create_job(job: JobCreate, db: aiosqlite.Connection = Depends(get_database)):
     """创建职位"""
     service = JobService(db)
     result = await service.create(job)
@@ -24,9 +24,7 @@ async def create_job(
 
 
 @router.get("/{job_id}", response_model=dict)
-async def get_job(
-    job_id: str, db: AsyncIOMotorDatabase = Depends(get_database)
-):
+async def get_job(job_id: int, db: aiosqlite.Connection = Depends(get_database)):
     """获取职位详情"""
     service = JobService(db)
     result = await service.get_by_id(job_id)
@@ -41,7 +39,7 @@ async def get_jobs(
     page_size: int = Query(10, ge=1, le=100, description="每页数量"),
     city: Optional[str] = Query(None, description="城市"),
     keyword: Optional[str] = Query(None, description="关键词"),
-    db: AsyncIOMotorDatabase = Depends(get_database),
+    db: aiosqlite.Connection = Depends(get_database),
 ):
     """获取职位列表"""
     skip = (page - 1) * page_size
@@ -49,10 +47,8 @@ async def get_jobs(
     if city:
         filters["city"] = city
     if keyword:
-        filters["$or"] = [
-            {"job_name": {"$regex": keyword, "$options": "i"}},
-            {"company_name": {"$regex": keyword, "$options": "i"}},
-        ]
+        # SQLite使用LIKE进行模糊搜索
+        filters["company_name"] = keyword
 
     service = JobService(db)
     jobs, total = await service.get_list(skip=skip, limit=page_size, filters=filters)
@@ -69,9 +65,9 @@ async def get_jobs(
 
 @router.put("/{job_id}", response_model=dict)
 async def update_job(
-    job_id: str,
+    job_id: int,
     job: JobUpdate,
-    db: AsyncIOMotorDatabase = Depends(get_database),
+    db: aiosqlite.Connection = Depends(get_database),
 ):
     """更新职位"""
     service = JobService(db)
@@ -82,9 +78,7 @@ async def update_job(
 
 
 @router.delete("/{job_id}", response_model=dict)
-async def delete_job(
-    job_id: str, db: AsyncIOMotorDatabase = Depends(get_database)
-):
+async def delete_job(job_id: int, db: aiosqlite.Connection = Depends(get_database)):
     """删除职位"""
     service = JobService(db)
     result = await service.delete(job_id)
@@ -95,7 +89,7 @@ async def delete_job(
 
 @router.post("/batch", response_model=dict)
 async def batch_create_jobs(
-    jobs: list[JobCreate], db: AsyncIOMotorDatabase = Depends(get_database)
+    jobs: list[JobCreate], db: aiosqlite.Connection = Depends(get_database)
 ):
     """批量创建职位"""
     service = JobService(db)

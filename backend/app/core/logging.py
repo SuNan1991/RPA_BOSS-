@@ -1,9 +1,12 @@
 """
 日志配置
 """
+
 import sys
-from loguru import logger
 from pathlib import Path
+
+from loguru import logger
+
 from .config import settings
 
 # 日志路径
@@ -17,7 +20,12 @@ logger.remove()
 logger.add(
     sys.stdout,
     level=settings.LOG_LEVEL,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    format=(
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+        "<level>{level: <8}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+        "<level>{message}</level>"
+    ),
     colorize=True,
 )
 
@@ -40,6 +48,7 @@ logger.add(
     retention="30 days",
     encoding="utf-8",
 )
+
 
 def get_logger(name: str = None):
     """获取logger实例"""

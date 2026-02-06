@@ -1,12 +1,15 @@
 """
 任务服务
 """
-from typing import List, Optional
-from motor.motor_asyncio import AsyncIOMotorDatabase
-from bson import ObjectId
+
+import json
 from datetime import datetime
+from typing import Optional
+
+import aiosqlite
+
 from ..core.logging import get_logger
-from ..schemas.task import TaskCreate, TaskUpdate, TaskResponse
+from ..schemas.task import TaskCreate, TaskResponse, TaskUpdate
 
 logger = get_logger("task_service")
 
@@ -14,31 +17,48 @@ logger = get_logger("task_service")
 class TaskService:
     """任务服务类"""
 
-    def __init__(self, db: AsyncIOMotorDatabase):
-        self.db = db
-        self.collection = db.tasks
+    def __init__(self, conn: aiosqlite.Connection):
+        self.conn = conn
 
     async def create(self, task: TaskCreate) -> TaskResponse:
         """创建任务"""
-        task_dict = task.model_dump()
-        task_dict["created_at"] = datetime.now()
-        task_dict["updated_at"] = datetime.now()
-        task_dict["status"] = "pending"
+        config_json = json.dumps(task.config, ensure_ascii=False)
+        now = datetime.now().isoformat()
 
-        result = await self.collection.insert_one(task_dict)
-        task_dict["id"] = str(result.inserted_id)
+        cursor = await self.conn.execute(
+            """
+            INSERT INTO tasks (
+                name, task_type, config, status, result,
+                error_message, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (task.name, task.task_type, config_json, "pending", None, None, now, now),
+        )
 
-        logger.info(f"Created task: {task_dict['id']}")
-        return TaskResponse(**task_dict)
+        task_id = cursor.lastrowid
+        await self.conn.commit()
 
-    async def get_by_id(self, task_id: str) -> Optional[TaskResponse]:
+        logger.info(f"Created task: {task_id}")
+        return TaskResponse(
+            id=task_id,
+            name=task.name,
+            task_type=task.task_type,
+            config=task.config,
+            status="pending",
+            result=None,
+            error_message=None,
+            created_at=datetime.fromisoformat(now),
+            updated_at=datetime.fromisoformat(now),
+        )
+
+    async def get_by_id(self, task_id: int) -> Optional[TaskResponse]:
         """根据ID获取任务"""
         try:
-            obj_id = ObjectId(task_id)
-            task = await self.collection.find_one({"_id": obj_id})
-            if task:
-                task["id"] = str(task.pop("_id"))
-                return TaskResponse(**task)
+            cursor = await self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = await cursor.fetchone()
+            if row:
+                return self._row_to_task_response(row)
         except Exception as e:
             logger.error(f"Error getting task: {e}")
         return None
@@ -49,64 +69,136 @@ class TaskService:
         limit: int = 10,
         status: Optional[str] = None,
         task_type: Optional[str] = None,
-    ) -> tuple[List[TaskResponse], int]:
+    ) -> tuple[list[TaskResponse], int]:
         """获取任务列表"""
-        query = {}
+        query = "SELECT * FROM tasks"
+        params = []
+        where_clauses = []
+
         if status:
-            query["status"] = status
+            where_clauses.append("status = ?")
+            params.append(status)
+
         if task_type:
-            query["task_type"] = task_type
+            where_clauses.append("task_type = ?")
+            params.append(task_type)
 
-        cursor = self.collection.find(query).sort("created_at", -1).skip(skip).limit(limit)
-        tasks = await cursor.to_list(length=limit)
-        total = await self.collection.count_documents(query)
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
 
-        result = []
-        for task in tasks:
-            task["id"] = str(task.pop("_id"))
-            result.append(TaskResponse(**task))
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, skip])
 
-        return result, total
+        try:
+            cursor = await self.conn.execute(query, params)
+            rows = await cursor.fetchall()
 
-    async def update(self, task_id: str, task: TaskUpdate) -> Optional[TaskResponse]:
+            # 获取总数
+            count_query = "SELECT COUNT(*) FROM tasks"
+            count_params = []
+            if where_clauses:
+                count_query += " WHERE " + " AND ".join(where_clauses)
+                count_params.extend(params[:-2])  # 排除limit和offset
+
+            count_cursor = await self.conn.execute(count_query, count_params)
+            total_row = await count_cursor.fetchone()
+            total = total_row[0] if total_row else 0
+
+            result = [self._row_to_task_response(row) for row in rows]
+            return result, total
+        except Exception as e:
+            logger.error(f"Error getting task list: {e}")
+            return [], 0
+
+    async def update(self, task_id: int, task: TaskUpdate) -> Optional[TaskResponse]:
         """更新任务"""
         try:
-            obj_id = ObjectId(task_id)
-            update_data = {k: v for k, v in task.model_dump().items() if v is not None}
-            update_data["updated_at"] = datetime.now()
+            update_fields = []
+            params = []
 
-            await self.collection.update_one({"_id": obj_id}, {"$set": update_data})
+            if task.status is not None:
+                update_fields.append("status = ?")
+                params.append(task.status)
+
+            if task.config is not None:
+                update_fields.append("config = ?")
+                params.append(json.dumps(task.config, ensure_ascii=False))
+
+            if task.result is not None:
+                update_fields.append("result = ?")
+                params.append(json.dumps(task.result, ensure_ascii=False))
+
+            if not update_fields:
+                return await self.get_by_id(task_id)
+
+            update_fields.append("updated_at = ?")
+            params.extend([datetime.now().isoformat(), task_id])
+
+            query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = ?"
+            await self.conn.execute(query, params)
+            await self.conn.commit()
+
             return await self.get_by_id(task_id)
         except Exception as e:
             logger.error(f"Error updating task: {e}")
             return None
 
     async def update_status(
-        self, task_id: str, status: str, result: dict = None, error_message: str = None
+        self, task_id: int, status: str, result: dict = None, error_message: str = None
     ) -> Optional[TaskResponse]:
         """更新任务状态"""
         try:
-            obj_id = ObjectId(task_id)
-            update_data = {"status": status, "updated_at": datetime.now()}
-            if result is not None:
-                update_data["result"] = result
-            if error_message is not None:
-                update_data["error_message"] = error_message
+            update_fields = ["status = ?", "updated_at = ?"]
+            params = [status, datetime.now().isoformat()]
 
-            await self.collection.update_one({"_id": obj_id}, {"$set": update_data})
+            if result is not None:
+                update_fields.append("result = ?")
+                params.append(json.dumps(result, ensure_ascii=False))
+
+            if error_message is not None:
+                update_fields.append("error_message = ?")
+                params.append(error_message)
+
+            params.append(task_id)
+
+            query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = ?"
+            await self.conn.execute(query, params)
+            await self.conn.commit()
+
             logger.info(f"Updated task status: {task_id} -> {status}")
             return await self.get_by_id(task_id)
         except Exception as e:
             logger.error(f"Error updating task status: {e}")
             return None
 
-    async def delete(self, task_id: str) -> bool:
+    async def delete(self, task_id: int) -> bool:
         """删除任务"""
         try:
-            obj_id = ObjectId(task_id)
-            result = await self.collection.delete_one({"_id": obj_id})
-            logger.info(f"Deleted task: {task_id}, deleted_count: {result.deleted_count}")
-            return result.deleted_count > 0
+            cursor = await self.conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            await self.conn.commit()
+            deleted_count = cursor.rowcount
+            logger.info(f"Deleted task: {task_id}, deleted_count: {deleted_count}")
+            return deleted_count > 0
         except Exception as e:
             logger.error(f"Error deleting task: {e}")
             return False
+
+    def _row_to_task_response(self, row) -> TaskResponse:
+        """将数据库行转换为TaskResponse对象"""
+        # row结构:
+        # (id, name, task_type, config, status, result,
+        #  error_message, created_at, updated_at)
+        config = json.loads(row[3]) if row[3] else {}
+        result = json.loads(row[5]) if row[5] else None
+
+        return TaskResponse(
+            id=row[0],
+            name=row[1],
+            task_type=row[2],
+            config=config,
+            status=row[4],
+            result=result,
+            error_message=row[6],
+            created_at=datetime.fromisoformat(row[7]),
+            updated_at=datetime.fromisoformat(row[8]),
+        )

@@ -1,10 +1,12 @@
 """
 RPA基础模块类
 """
+
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
-from .browser import browser_manager
+from typing import Any
+
 from ...app.core.logging import get_logger
+from .browser import browser_manager
 
 logger = get_logger("base_module")
 
@@ -17,7 +19,7 @@ class BaseModule(ABC):
         self.logger = logger
 
     @abstractmethod
-    def execute(self, **kwargs) -> Dict[str, Any]:
+    def execute(self, **kwargs) -> dict[str, Any]:
         """
         执行模块功能
 
@@ -81,5 +83,6 @@ class BaseModule(ABC):
             seconds: 等待秒数
         """
         import time
+
         self.logger.debug(f"Waiting {seconds} seconds...")
         time.sleep(seconds)

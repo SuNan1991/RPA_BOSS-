@@ -1,10 +1,12 @@
 """
 API路由
 """
+
 from fastapi import APIRouter
+
+from .accounts import router as accounts_router
 from .jobs import router as jobs_router
 from .tasks import router as tasks_router
-from .accounts import router as accounts_router
 
 api_router = APIRouter()
 

@@ -1,15 +1,16 @@
 """
 数据模型
 """
-from .job import JobBase, JobCreate, JobUpdate, JobResponse, JobFilter
-from .task import TaskBase, TaskCreate, TaskUpdate, TaskResponse
+
 from .account import (
     AccountBase,
     AccountCreate,
-    AccountUpdate,
     AccountResponse,
+    AccountUpdate,
     LoginRequest,
 )
+from .job import JobBase, JobCreate, JobFilter, JobResponse, JobUpdate
+from .task import TaskBase, TaskCreate, TaskResponse, TaskUpdate
 
 __all__ = [
     "JobBase",

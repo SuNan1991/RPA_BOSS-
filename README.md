@@ -174,7 +174,7 @@ npm run dev
 - **[DrissionPage 修复](./docs/bugs/drissionpage-fixes.md)** - DrissionPage 相关问题修复
 - **[错误修复摘要](./docs/bugs/error-fixes.md)** - 错误修复汇总
 
-> 📖 **更多文档**: 访问 [docs/README.md](./docs/README.md) 查看完整的文档索引。
+> 📖 **更多文档**: 访问 [docs/INDEX.md](./docs/INDEX.md) 查看完整的文档索引。
 
 ## 配置说明
 

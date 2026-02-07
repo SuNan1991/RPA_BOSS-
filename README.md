@@ -15,7 +15,7 @@
 ### 前端
 - **Vue 3**: 渐进式 JavaScript 框架
 - **Vite**: 下一代前端构建工具
-- **Element Plus**: Vue 3 组件库
+- **Tailwind CSS**: 实用优先的 CSS 框架
 - **TypeScript**: 类型安全的 JavaScript 超集
 - **Pinia**: Vue 3 状态管理
 

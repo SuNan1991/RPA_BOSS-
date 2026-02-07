@@ -5,7 +5,8 @@ RPA基础模块类
 from abc import ABC, abstractmethod
 from typing import Any
 
-from ...app.core.logging import get_logger
+from app.core.logging import get_logger
+
 from .browser import browser_manager
 
 logger = get_logger("base_module")

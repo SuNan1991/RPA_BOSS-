@@ -2,15 +2,28 @@
 FastAPI 主应用
 """
 
+import os
+import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import api_router
+from .api import (
+    api_router,
+    auth,  # Import auth router
+)
+from .api.websocket_logs import websocket_log_stream
 from .core.config import settings
 from .core.database import db, init_database
-from .core.logging import logger
+from .core.logging import get_logger, setup_logging
+
+# Setup logging first (before any other imports that might log)
+setup_logging()
+logger = get_logger(__name__)
+
+# Add project root to Python path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 
 @asynccontextmanager
@@ -20,6 +33,53 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up...")
     await db.connect()
     await init_database()
+
+    # Run database migrations
+    try:
+        import os
+
+        migration_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrations")
+
+        # Get async connection
+        conn = await db.get_connection()
+        cursor = await conn.cursor()
+
+        # Create migrations table if not exists
+        await cursor.execute("""
+            CREATE TABLE IF NOT EXISTS _migrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT UNIQUE,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Get applied migrations
+        await cursor.execute("SELECT filename FROM _migrations")
+        rows = await cursor.fetchall()
+        applied = {row[0] for row in rows}
+
+        # Apply new migrations
+        if os.path.exists(migration_dir):
+            for filename in sorted(os.listdir(migration_dir)):
+                if filename.endswith(".sql") and filename not in applied:
+                    filepath = os.path.join(migration_dir, filename)
+                    logger.info(f"Applying migration: {filename}")
+
+                    with open(filepath, encoding="utf-8") as f:
+                        sql = f.read()
+                        await cursor.executescript(sql)
+
+                    await cursor.execute(
+                        "INSERT INTO _migrations (filename) VALUES (?)", (filename,)
+                    )
+                    await conn.commit()
+
+        await cursor.close()
+        logger.info("Database migrations completed")
+
+    except Exception as e:
+        logger.error(f"Error running migrations: {e}")
+
     yield
     # 关闭时
     logger.info("Shutting down...")
@@ -45,6 +105,14 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(api_router)
+app.include_router(auth.router)  # Add auth router with WebSocket
+
+
+# WebSocket endpoint for log streaming
+@app.websocket("/ws/logs")
+async def websocket_logs_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time log streaming"""
+    await websocket_log_stream(websocket)
 
 
 @app.get("/")

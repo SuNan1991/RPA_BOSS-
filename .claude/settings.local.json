@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openspec new:*)",
+      "Bash(openspec status:*)",
+      "Bash(openspec:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "mcp__web-reader__webReader",
+      "mcp__web-search-prime__webSearchPrime",
+      "Bash(move:*)",
+      "Bash(ls:*)",
+      "Bash(sqlite3:*)",
+      "Bash(pre-commit run:*)",
+      "Bash(backend/.venv/Scripts/pre-commit run:*)",
+      "Bash(backend/.venv/Scripts/ruff check:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

@@ -10,7 +10,7 @@ from typing import Optional
 import ddddocr
 from PIL import Image
 
-from ...app.core.logging import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger("captcha_handler")
 

@@ -15,7 +15,9 @@
       "Bash(backend/.venv/Scripts/pre-commit run:*)",
       "Bash(backend/.venv/Scripts/ruff check:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git mv:*)"
     ]
   }
 }

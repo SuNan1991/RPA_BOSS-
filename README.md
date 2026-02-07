@@ -51,6 +51,12 @@ BOSS_RPA/
 │   │   └── main.ts          # 应用入口
 │   └── package.json         # Node依赖
 ├── logs/                     # 日志目录
+├── docs/                     # 文档中心
+│   ├── guides/              # 开发和部署指南
+│   ├── troubleshooting/     # 故障排查
+│   ├── changelog/           # 变更记录
+│   ├── features/            # 功能实现文档
+│   └── bugs/                # 问题修复记录
 └── README.md
 ```
 
@@ -142,6 +148,33 @@ python -m app.main
 cd frontend
 npm run dev
 ```
+
+## 📚 文档中心
+
+完整的文档请访问 [docs/](./docs/) 目录，包含：
+
+### 📖 开发指南
+- **[开发指南](./docs/guides/development.md)** - Claude Code 开发指南、项目架构和最佳实践
+- **[部署指南](./docs/guides/deployment.md)** - MongoDB 到 SQLite 迁移步骤
+- **[脚本使用指南](./docs/guides/scripts.md)** - 批处理脚本使用方法
+
+### 🔧 故障排查
+- **[错误指南](./docs/troubleshooting/error-guide.md)** - 常见错误预防
+- **[启动警告](./docs/troubleshooting/startup-warnings.md)** - 已知启动问题和解决方案
+
+### 📝 变更记录
+- **[CHANGELOG.md](./CHANGELOG.md)** - 完整的版本变更日志
+- **[数据库迁移](./docs/changelog/migration.md)** - MongoDB 到 SQLite 迁移摘要
+- **[端口更新](./docs/changelog/port-update.md)** - 端口配置更新说明
+
+### ✨ 功能实现
+- **[安全登录 UI](./docs/features/secure-login-ui.md)** - BOSS 安全登录界面实现详情
+
+### 🐛 问题修复
+- **[DrissionPage 修复](./docs/bugs/drissionpage-fixes.md)** - DrissionPage 相关问题修复
+- **[错误修复摘要](./docs/bugs/error-fixes.md)** - 错误修复汇总
+
+> 📖 **更多文档**: 访问 [docs/README.md](./docs/README.md) 查看完整的文档索引。
 
 ## 配置说明
 

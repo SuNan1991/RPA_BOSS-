@@ -38,11 +38,10 @@
 
 项目变更和版本更新历史。
 
+- **[CHANGELOG](./changelog/CHANGELOG.md)** - 完整的版本变更日志
 - **[数据库迁移 (Migration)](./changelog/migration.md)** - MongoDB 到 SQLite 迁移摘要
 - **[端口更新 (Port Update)](./changelog/port-update.md)** - 端口配置更新说明
 - **[提交记录 (Commits)](./changelog/commits.md)** - Git 提交摘要
-
-> **注意**: 完整的变更日志请查看根目录的 [CHANGELOG.md](../CHANGELOG.md)
 
 ### ✨ [功能实现 (Features)](./features/)
 
@@ -71,8 +70,9 @@ DrissionPage 浏览器自动化框架的中文文档。
 
 ### 新用户入门
 1. 阅读 [README.md](../README.md) 了解项目概述
-2. 查看 [部署指南](./guides/deployment.md) 安装和配置项目
-3. 参考 [脚本使用指南](./guides/scripts.md) 启动项目
+2. 查看 [CHANGELOG](./changelog/CHANGELOG.md) 了解版本更新
+3. 查看 [部署指南](./guides/deployment.md) 安装和配置项目
+4. 参考 [脚本使用指南](./guides/scripts.md) 启动项目
 
 ### 开发者指南
 1. 阅读 [开发指南](./guides/development.md) 了解项目架构

@@ -163,7 +163,7 @@ npm run dev
 - **[启动警告](./docs/troubleshooting/startup-warnings.md)** - 已知启动问题和解决方案
 
 ### 📝 变更记录
-- **[CHANGELOG.md](./CHANGELOG.md)** - 完整的版本变更日志
+- **[CHANGELOG](./docs/changelog/CHANGELOG.md)** - 完整的版本变更日志
 - **[数据库迁移](./docs/changelog/migration.md)** - MongoDB 到 SQLite 迁移摘要
 - **[端口更新](./docs/changelog/port-update.md)** - 端口配置更新说明
 

@@ -7,21 +7,16 @@ export {}
 
 declare module 'vue' {
   export interface GlobalComponents {
-    ElButton: typeof import('element-plus/es')['ElButton']
-    ElContainer: typeof import('element-plus/es')['ElContainer']
-    ElForm: typeof import('element-plus/es')['ElForm']
-    ElFormItem: typeof import('element-plus/es')['ElFormItem']
-    ElHeader: typeof import('element-plus/es')['ElHeader']
-    ElInput: typeof import('element-plus/es')['ElInput']
-    ElMain: typeof import('element-plus/es')['ElMain']
-    ElPagination: typeof import('element-plus/es')['ElPagination']
-    ElTable: typeof import('element-plus/es')['ElTable']
-    ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
-    ElTag: typeof import('element-plus/es')['ElTag']
+    AccountCard: typeof import('./../components/AccountCard.vue')['default']
+    AuthenticatedPage: typeof import('./../components/AuthenticatedPage.vue')['default']
+    Button: typeof import('./../components/Button.vue')['default']
+    GlassCard: typeof import('./../components/GlassCard.vue')['default']
+    LandingPage: typeof import('./../components/LandingPage.vue')['default']
+    LoadingSpinner: typeof import('./../components/LoadingSpinner.vue')['default']
+    LogViewer: typeof import('./../components/LogViewer.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
-  }
-  export interface ComponentCustomProperties {
-    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
+    StatusIndicator: typeof import('./../components/StatusIndicator.vue')['default']
+    Toast: typeof import('./../components/Toast.vue')['default']
   }
 }

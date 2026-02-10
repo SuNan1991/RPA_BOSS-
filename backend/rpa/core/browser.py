@@ -9,8 +9,8 @@ from typing import Optional
 
 from DrissionPage import ChromiumOptions, ChromiumPage
 
-from ...app.core.config import settings
-from ...app.core.logging import get_logger
+from app.core.config import settings
+from app.core.logging import get_logger
 
 logger = get_logger("browser")
 

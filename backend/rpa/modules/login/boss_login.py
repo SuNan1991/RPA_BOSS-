@@ -4,10 +4,10 @@ BOSS直聘登录模块
 
 from typing import Any, Optional
 
-from ...app.core.config import settings
-from ...app.core.logging import get_logger
-from ..core.base import BaseModule
-from ..modules.captcha import CaptchaHandler, SlideTrackGenerator
+from app.core.config import settings
+from app.core.logging import get_logger
+from rpa.core.base import BaseModule
+from rpa.modules.captcha import CaptchaHandler, SlideTrackGenerator
 
 logger = get_logger("boss_login")
 

@@ -121,6 +121,28 @@ async def create_schema():
         )
     """)
 
+    # 创建sessions表 (用于RPA会话管理)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cookies BLOB NOT NULL,
+            user_info TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP
+        )
+    """)
+
+    # 创建login_logs表 (用于登录日志)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS login_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            success BOOLEAN DEFAULT 0,
+            failure_reason TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # 创建索引
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_phone ON accounts(phone)")
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_is_active ON accounts(is_active)")
@@ -128,6 +150,11 @@ async def create_schema():
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_city ON jobs(city)")
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_task_type ON tasks(task_type)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_login_logs_timestamp ON login_logs(timestamp)"
+    )
 
     await conn.commit()
     print("Database schema created successfully")

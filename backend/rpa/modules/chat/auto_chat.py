@@ -4,9 +4,9 @@ BOSS直聘自动聊天模块
 
 from typing import Any, Optional
 
-from ...app.core.config import settings
-from ...app.core.logging import get_logger
-from ..core.base import BaseModule
+from app.core.config import settings
+from app.core.logging import get_logger
+from rpa.core.base import BaseModule
 
 logger = get_logger("auto_chat")
 

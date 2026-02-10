@@ -1,9 +1,19 @@
-"""
-RPA功能模块
-"""
+"""RPA modules"""
 
-from .chat import AutoChatModule
-from .job import JobSearchModule
-from .login import BossLoginModule
+# Use lazy imports to avoid failing when optional dependencies (ddddocr, etc.) are missing
+try:
+    from .login import BossLoginModule
+except ImportError:
+    BossLoginModule = None
+
+try:
+    from .job import JobSearchModule
+except ImportError:
+    JobSearchModule = None
+
+try:
+    from .chat import AutoChatModule
+except ImportError:
+    AutoChatModule = None
 
 __all__ = ["BossLoginModule", "JobSearchModule", "AutoChatModule"]

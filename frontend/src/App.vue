@@ -3,7 +3,20 @@
 </template>
 
 <script setup lang="ts">
-// App根组件
+import { onMounted } from 'vue'
+import { useThemeStore } from '@/stores/theme'
+import { useAuthStore } from '@/stores/auth'
+
+const themeStore = useThemeStore()
+const authStore = useAuthStore()
+
+onMounted(() => {
+  // Initialize theme
+  themeStore.loadTheme()
+
+  // Load auth from storage
+  authStore.loadFromStorage()
+})
 </script>
 
 <style>

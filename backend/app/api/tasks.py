@@ -11,6 +11,7 @@ from ..core.database import get_database
 from ..core.responses import error_response, success_response
 from ..schemas.task import TaskCreate, TaskUpdate
 from ..services import TaskService
+from ..services.task_executor import TaskExecutor
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -25,8 +26,15 @@ async def create_task(
     service = TaskService(db)
     result = await service.create(task)
 
-    # 添加后台任务执行逻辑
-    # background_tasks.add_task(execute_task, result.id, task.config, db)
+    # 如果配置了自动执行，则启动后台任务
+    if task.config.get("auto_execute", False):
+        executor = TaskExecutor(db)
+
+        async def execute_and_update():
+            config_with_type = {**task.config, "task_type": task.task_type}
+            await executor.execute_task(result.id, config_with_type)
+
+        background_tasks.add_task(execute_and_update)
 
     return success_response(data=result.model_dump(), message="任务创建成功")
 
@@ -103,10 +111,23 @@ async def execute_task_endpoint(
     if not task:
         return error_response(message="任务不存在", code=404)
 
+    # 检查任务状态
+    if task.status == "running":
+        return error_response(message="任务正在执行中", code=400)
+
+    if task.status == "completed":
+        return error_response(message="任务已完成", code=400)
+
     # 更新任务状态为运行中
     await service.update_status(task_id, "running")
 
-    # 添加后台任务执行逻辑
-    # background_tasks.add_task(execute_task, task_id, task.config, db)
+    # 创建执行器并执行任务
+    executor = TaskExecutor(db)
+
+    async def execute_and_update():
+        config_with_type = {**task.config, "task_type": task.task_type}
+        await executor.execute_task(task_id, config_with_type)
+
+    background_tasks.add_task(execute_and_update)
 
     return success_response(message="任务开始执行")

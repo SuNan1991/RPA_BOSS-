@@ -94,7 +94,43 @@ async def refresh_cookie(account_id: int, db: aiosqlite.Connection = Depends(get
     if not account:
         return error_response(message="账户不存在", code=404)
 
-    # TODO: 调用RPA模块刷新Cookie
-    # 这里需要调用RPA模块的登录功能获取新Cookie
+    # 调用RPA服务刷新Cookie
+    from ..services.rpa_service import RPAService
 
-    return success_response(message="Cookie刷新成功")
+    rpa_service = RPAService()
+
+    # 检查是否已有登录在进行中
+    if rpa_service.is_login_in_progress():
+        return error_response(message="已有登录正在进行中，请稍后再试", code=400)
+
+    # 启动登录流程
+    result = await rpa_service.start_login_for_account(account_id)
+
+    if result.get("status") == "browser_opened":
+        return success_response(
+            data={"account_id": account_id, "status": "browser_opened"},
+            message="浏览器已打开，请扫码或密码登录",
+        )
+    else:
+        return error_response(message=result.get("message", "刷新Cookie失败"), code=500)
+
+
+@router.get("/{account_id}/validate", response_model=dict)
+async def validate_cookie(account_id: int, db: aiosqlite.Connection = Depends(get_database)):
+    """验证Cookie是否有效"""
+    service = AccountService(db)
+    account = await service.get_by_id(account_id)
+    if not account:
+        return error_response(message="账户不存在", code=404)
+
+    # 调用会话管理器验证Cookie
+    from rpa.modules.session_manager import SessionManager
+
+    session_manager = SessionManager()
+    is_valid = await session_manager.validate_cookies(account_id)
+
+    # 更新Cookie状态
+    new_status = "valid" if is_valid else "invalid"
+    await service.update_cookie_status(account_id, new_status)
+
+    return success_response(data={"valid": is_valid, "status": new_status}, message="Cookie验证完成")

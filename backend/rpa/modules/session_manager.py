@@ -113,10 +113,13 @@ class SessionManager:
                 encrypted_cookies, user_info_json, expires_at = row
 
                 # Check expiry
-                if expires_at and datetime.fromisoformat(expires_at) < datetime.now():
-                    logger.info("Session expired, deleting")
-                    await self.delete_session()
-                    return None
+                if expires_at:
+                    # Handle both datetime objects and ISO format strings
+                    expiry_dt = expires_at if isinstance(expires_at, datetime) else datetime.fromisoformat(expires_at)
+                    if expiry_dt < datetime.now():
+                        logger.info("Session expired, deleting")
+                        await self.delete_session()
+                        return None
 
                 # Decrypt cookies
                 decrypted_cookies = self.cipher.decrypt(encrypted_cookies)
@@ -292,11 +295,13 @@ class SessionManager:
                 encrypted_cookies, user_info_json, expires_at = row
 
                 # 检查是否过期
-                if expires_at and datetime.fromisoformat(expires_at) < datetime.now():
-                    logger.info(f"Session expired for account {account_id}")
-                    await self.delete_session_for_account(account_id)
-                    await conn.close()
-                    return None
+                if expires_at:
+                    expiry_dt = expires_at if isinstance(expires_at, datetime) else datetime.fromisoformat(expires_at)
+                    if expiry_dt < datetime.now():
+                        logger.info(f"Session expired for account {account_id}")
+                        await self.delete_session_for_account(account_id)
+                        await conn.close()
+                        return None
 
                 # 解密cookies
                 decrypted_cookies = self.cipher.decrypt(encrypted_cookies)
@@ -410,7 +415,6 @@ class SessionManager:
                     row = await cursor.fetchone()
                     if not row:
                         logger.warning(f"No session found for account {account_id}")
-                        await conn.close()
                         return False
 
                 # 更新最后使用时间
@@ -423,10 +427,11 @@ class SessionManager:
                     (datetime.now(), account_id),
                 )
                 await conn.commit()
-                await conn.close()
 
                 logger.info(f"Active account set to {account_id}")
                 return True
+            finally:
+                await conn.close()
 
         except Exception as e:
             logger.error(f"Failed to set active account: {e}")
@@ -485,10 +490,11 @@ class SessionManager:
 
                 deleted_count = cursor.rowcount
                 await conn.commit()
-                await conn.close()
 
                 logger.info(f"Cleaned up {deleted_count} old account sessions")
                 return deleted_count
+            finally:
+                await conn.close()
 
         except Exception as e:
             logger.error(f"Failed to cleanup old account sessions: {e}")
@@ -525,8 +531,8 @@ class SessionManager:
                 await conn.close()
 
                 if row and row[0]:
-                    expires_at = datetime.fromisoformat(row[0])
-                    if expires_at < datetime.now():
+                    expiry_dt = row[0] if isinstance(row[0], datetime) else datetime.fromisoformat(row[0])
+                    if expiry_dt < datetime.now():
                         logger.info(f"Cookies expired for account {account_id}")
                         return False
 

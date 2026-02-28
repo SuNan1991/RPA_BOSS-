@@ -8,15 +8,23 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AccountCard: typeof import('./../components/AccountCard.vue')['default']
+    AccountSwitcher: typeof import('./../components/AccountSwitcher.vue')['default']
+    AddAccountDialog: typeof import('./../components/AddAccountDialog.vue')['default']
     AuthenticatedPage: typeof import('./../components/AuthenticatedPage.vue')['default']
     Button: typeof import('./../components/Button.vue')['default']
+    CandidateList: typeof import('./../components/CandidateList.vue')['default']
+    CandidateSearch: typeof import('./../components/CandidateSearch.vue')['default']
     GlassCard: typeof import('./../components/GlassCard.vue')['default']
+    JobManager: typeof import('./../components/JobManager.vue')['default']
     LandingPage: typeof import('./../components/LandingPage.vue')['default']
     LoadingSpinner: typeof import('./../components/LoadingSpinner.vue')['default']
     LogViewer: typeof import('./../components/LogViewer.vue')['default']
+    ReplyRuleManager: typeof import('./../components/ReplyRuleManager.vue')['default']
+    ResumeManager: typeof import('./../components/ResumeManager.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     StatusIndicator: typeof import('./../components/StatusIndicator.vue')['default']
+    TaskManager: typeof import('./../components/TaskManager.vue')['default']
     Toast: typeof import('./../components/Toast.vue')['default']
   }
 }

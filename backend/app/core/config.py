@@ -4,6 +4,7 @@
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -15,6 +16,12 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "your-secret-key-change-this-in-production"
+
+    # Session加密配置
+    SESSION_ENCRYPTION_KEY: str = Field(
+        default="jqOTZ79zIv_u7E9Jt5PDkKi188CxL-dOQiTPYLQ5b40=",
+        description="Encryption key for session cookies using Fernet"
+    )
 
     # 服务器配置
     HOST: str = "0.0.0.0"

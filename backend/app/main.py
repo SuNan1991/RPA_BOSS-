@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import (
     api_router,
     auth,  # Import auth router
+    hr,  # Import hr router
 )
 from .api.websocket_logs import websocket_log_stream
 from .core.config import settings
@@ -106,6 +107,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(api_router)
 app.include_router(auth.router)  # Add auth router with WebSocket
+app.include_router(hr.router)  # Add hr router
 
 
 # WebSocket endpoint for log streaming

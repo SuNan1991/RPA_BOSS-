@@ -232,6 +232,60 @@ class RPAService:
             logger.error(f"Failed to extract user info: {e}")
             return None
 
+    async def apply_session_to_browser(self) -> bool:
+        """
+        Apply saved cookies to browser for auto-login
+
+        Returns:
+            bool: True if session was applied successfully
+        """
+        try:
+            # Load session from database
+            session = await self.session_manager.load_session()
+            if not session or not session.get("cookies"):
+                logger.debug("No session found to apply")
+                return False
+
+            # Start browser
+            browser = self.browser_manager.start_browser()
+            if not browser:
+                logger.error("Failed to start browser for session application")
+                return False
+
+            # Apply cookies to browser
+            cookies = session["cookies"]
+            for cookie_dict in cookies:
+                try:
+                    # Set cookie for the correct domain
+                    browser.set.cookie(
+                        name=cookie_dict.get("name"),
+                        value=cookie_dict.get("value"),
+                        domain=cookie_dict.get("domain", ".zhipin.com"),
+                        path=cookie_dict.get("path", "/"),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to set cookie {cookie_dict.get('name')}: {e}")
+
+            logger.info(f"Applied {len(cookies)} cookies to browser")
+
+            # Navigate to BOSS Zhipin to verify login
+            await asyncio.sleep(1)
+            browser.get("https://www.zhipin.com/")
+            await asyncio.sleep(2)
+
+            # Check if login was successful
+            current_url = browser.url
+            if "login.zhipin.com" not in current_url:
+                logger.info("Auto-login successful using saved cookies")
+                return True
+            else:
+                logger.warning("Auto-login failed, cookies may be expired")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to apply session to browser: {e}")
+            return False
+
     def logout(self) -> dict[str, Any]:
         """
         Logout user and clear session
@@ -322,3 +376,201 @@ class RPAService:
     def set_login_progress(self, in_progress: bool):
         """Set login progress flag"""
         self._login_in_progress = in_progress
+
+    # ==================== 账户登录方法 ====================
+
+    async def start_login_for_account(self, account_id: int) -> dict[str, Any]:
+        """
+        Start RPA login process for a specific account
+
+        Args:
+            account_id: 账户ID
+
+        Returns:
+            dict with status and message
+        """
+        if self._login_in_progress:
+            return {"status": "error", "message": "Login already in progress"}
+
+        try:
+            self._login_in_progress = True
+
+            # 获取账户信息
+            from app.core.database import db
+            from app.services.account_service import AccountService
+
+            conn = await db.get_connection()
+            account_service = AccountService(conn)
+            account = await account_service.get_by_id(account_id)
+
+            if not account:
+                self._login_in_progress = False
+                return {"status": "error", "message": f"Account {account_id} not found"}
+
+            # 检查账户类型
+            account_type = getattr(account, "account_type", "seeker")
+
+            # 启动浏览器
+            browser = self.browser_manager.start_browser()
+
+            # 根据账户类型选择登录模块
+            if account_type == "hr":
+                login_url = "https://login.zhipin.com/?ka=header-boss-login"
+            else:
+                login_url = "https://login.zhipin.com/"
+
+            browser.get(login_url)
+            logger.info(f"Navigated to {login_url} for account {account_id}")
+
+            # 记录登录尝试
+            await self._log_login_attempt(
+                account.username, success=False, failure_reason=f"Login started for account {account_id}"
+            )
+
+            return {
+                "status": "browser_opened",
+                "message": "Browser opened, waiting for user to login",
+                "account_id": account_id,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to start login for account {account_id}: {e}")
+            self._login_in_progress = False
+            await self._log_login_attempt(None, success=False, failure_reason=str(e))
+
+            return {"status": "error", "message": f"Failed to start login: {str(e)}"}
+
+    async def monitor_login_for_account(self, account_id: int) -> dict[str, Any]:
+        """
+        Monitor login process for a specific account
+
+        Args:
+            account_id: 账户ID
+
+        Returns:
+            dict with login status
+        """
+        try:
+            browser = self.browser_manager.get_browser()
+
+            if not browser:
+                return {"status": "error", "message": "Browser not running"}
+
+            # 轮询 URL 检测登录成功
+            max_attempts = 150  # 5分钟，2秒间隔
+            for attempt in range(max_attempts):
+                if not self.browser_manager.is_browser_running():
+                    return {"status": "cancelled", "message": "Browser was closed"}
+
+                current_url = browser.url
+
+                # 检查 URL 变化（登录成功）
+                if "login.zhipin.com" not in current_url:
+                    logger.info(f"Login successful for account {account_id}, redirected to {current_url}")
+                    return await self._handle_login_success_for_account(browser, account_id)
+
+                # 等待下次检查
+                await asyncio.sleep(2)
+
+            # 超时
+            logger.warning(f"Login timeout for account {account_id} after 5 minutes")
+            self.browser_manager.close_browser()
+            self._login_in_progress = False
+
+            return {"status": "timeout", "message": "Login timeout (5 minutes)", "account_id": account_id}
+
+        except Exception as e:
+            logger.error(f"Error monitoring login for account {account_id}: {e}")
+            self._login_in_progress = False
+            return {"status": "error", "message": f"Error monitoring login: {str(e)}"}
+
+    async def _handle_login_success_for_account(self, browser, account_id: int) -> dict[str, Any]:
+        """
+        处理账户登录成功
+
+        Args:
+            browser: 浏览器对象
+            account_id: 账户ID
+
+        Returns:
+            登录结果
+        """
+        try:
+            # 提取 cookies
+            cookies = self.extract_cookies(browser)
+
+            # 提取用户信息
+            user_info = self.extract_user_info(browser)
+
+            # 保存会话到指定账户
+            await self.session_manager.save_session_for_account(account_id, cookies, user_info)
+
+            # 更新账户状态
+            from app.core.database import db
+            from app.services.account_service import AccountService
+
+            conn = await db.get_connection()
+            account_service = AccountService(conn)
+            await account_service.update_cookie_status(account_id, "valid")
+
+            # 记录成功登录
+            username = user_info.get("username") if user_info else "Unknown"
+            await self._log_login_attempt(username, success=True)
+
+            # 关闭浏览器
+            self.browser_manager.close_browser()
+            self._login_in_progress = False
+
+            return {
+                "status": "success",
+                "message": "Login successful",
+                "user_info": user_info,
+                "account_id": account_id,
+            }
+
+        except Exception as e:
+            logger.error(f"Error handling login success for account {account_id}: {e}")
+            self._login_in_progress = False
+            return {"status": "error", "message": f"Error saving session: {str(e)}"}
+
+    async def get_active_account_status(self) -> dict[str, Any]:
+        """
+        获取活跃账户的状态
+
+        Returns:
+            dict with status information
+        """
+        try:
+            active_account_id = await self.session_manager.get_active_account_id()
+
+            if not active_account_id:
+                return {
+                    "is_logged_in": False,
+                    "active_account_id": None,
+                    "user_info": None,
+                    "timestamp": datetime.now().isoformat(),
+                }
+
+            # 加载活跃账户的会话
+            session = await self.session_manager.load_session_for_account(active_account_id)
+
+            return {
+                "is_logged_in": session is not None,
+                "active_account_id": active_account_id,
+                "user_info": session.get("user_info") if session else None,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get active account status: {e}")
+            return {
+                "is_logged_in": False,
+                "active_account_id": None,
+                "user_info": None,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+    @staticmethod
+    def get_now_iso() -> str:
+        """获取当前时间的 ISO 格式字符串"""
+        return datetime.now().isoformat()

@@ -125,6 +125,100 @@ async def logout():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class AccountLoginRequest(BaseModel):
+    """Account login request model"""
+
+    account_id: int
+
+
+@router.post("/login/account")
+async def login_account(request: AccountLoginRequest):
+    """Start RPA login process for a specific account"""
+    try:
+        # Check if Chrome is installed
+        import platform
+
+        system = platform.system()
+
+        # Simple Chrome check
+        chrome_paths = {
+            "Windows": [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
+            ],
+            "Darwin": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+            "Linux": ["/usr/bin/google-chrome", "/usr/bin/chrome", "/usr/bin/chromium"],
+        }
+
+        chrome_found = False
+        for path in chrome_paths.get(system, []):
+            if os.path.exists(path):
+                chrome_found = True
+                break
+
+        if not chrome_found:
+            raise HTTPException(
+                status_code=400, detail="Chrome browser not found. Please install Google Chrome."
+            )
+
+        # Start login for specific account
+        result = await rpa_service.start_login_for_account(request.account_id)
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["message"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting account login: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/accounts/{account_id}/switch")
+async def switch_account(account_id: int):
+    """Switch to a specific account as active"""
+    try:
+        from app.services.account_service import AccountService
+
+        conn = await db.get_connection()
+        account_service = AccountService(conn)
+
+        # Verify account exists
+        account = await account_service.get_by_id(account_id)
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+
+        # Set as active account
+        session_manager = rpa_service.session_manager
+        success = await session_manager.set_active_account(account_id)
+
+        if success:
+            # Broadcast account switch event
+            await manager.broadcast(
+                {
+                    "type": "account_switched",
+                    "data": {
+                        "account_id": account_id,
+                        "account_info": account.model_dump(),
+                        "timestamp": rpa_service.get_now_iso(),
+                    },
+                }
+            )
+
+            return {"status": "success", "message": f"Switched to account {account_id}", "account_id": account_id}
+        else:
+            raise HTTPException(status_code=400, detail="No valid session found for this account")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error switching account: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/logs", response_model=list[LogResponse])
 async def get_login_logs(limit: int = 50, offset: int = 0):
     """Get login history (admin only)"""

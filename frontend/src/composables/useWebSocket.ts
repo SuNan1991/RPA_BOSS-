@@ -2,6 +2,7 @@
  * useWebSocket - WebSocket connection composable
  */
 import { ref, onMounted, onUnmounted } from 'vue'
+import { useHRStore } from '@/stores/hr'
 
 type MessageHandler = (data: any) => void
 
@@ -39,6 +40,11 @@ export function useWebSocket() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+
+          // Handle specific message types
+          handleMessageByType(data)
+
+          // Call registered handlers
           messageHandlers.forEach(handler => handler(data))
         } catch (e) {
           console.error('Error parsing WebSocket message:', e)
@@ -63,6 +69,37 @@ export function useWebSocket() {
       console.error('Failed to connect WebSocket:', error)
       connecting.value = false
       scheduleReconnect()
+    }
+  }
+
+  function handleMessageByType(data: any) {
+    const hrStore = useHRStore()
+
+    switch (data.type) {
+      case 'account_switched':
+        // Handle account switched event
+        console.log('Account switched:', data.data)
+        hrStore.loadAccounts()
+        break
+
+      case 'candidate_found':
+        // Handle new candidate found
+        console.log('New candidate found:', data.data)
+        hrStore.loadCandidates()
+        break
+
+      case 'greet_progress':
+        // Handle greet progress update
+        console.log('Greet progress:', data.data)
+        break
+
+      case 'status':
+      case 'status_update':
+        // Handle auth status updates
+        break
+
+      default:
+        console.log('Unknown message type:', data.type)
     }
   }
 

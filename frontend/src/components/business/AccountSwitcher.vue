@@ -79,7 +79,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useHRStore, type HRAccount } from '@/stores/hr'
-import AddAccountDialog from '@/components/AddAccountDialog.vue'
+import AddAccountDialog from '@/components/business/AddAccountDialog.vue'
 
 const hrStore = useHRStore()
 

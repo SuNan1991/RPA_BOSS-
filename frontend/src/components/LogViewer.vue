@@ -142,7 +142,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import api from '@/api'
 
 interface LogEntry {

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     # 服务器配置
     HOST: str = "0.0.0.0"
-    PORT: int = 3000
+    PORT: int = 8000
 
     # SQLite配置
     SQLITE_DB_PATH: str = "data/boss_rpa.db"

@@ -56,13 +56,10 @@ async def get_database() -> aiosqlite.Connection:
 
 async def init_database():
     """初始化数据库（创建schema）"""
-    # 如果数据库文件不存在，创建schema
-    if not db.db_path.exists():
-        print("Database file not found, creating schema...")
-        await create_schema()
-    else:
-        print("Database file exists, verifying schema...")
-        # 这里可以添加schema验证逻辑
+    # 总是调用 create_schema，因为它使用 CREATE TABLE IF NOT EXISTS
+    # 这样可以确保所有表都存在
+    print("Ensuring database schema is up to date...")
+    await create_schema()
 
 
 async def create_schema():

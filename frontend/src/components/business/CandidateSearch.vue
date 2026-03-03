@@ -106,8 +106,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useHRStore } from '@/stores/hr'
-import Button from './Button.vue'
-import GlassCard from './GlassCard.vue'
+import Button from '@/components/ui/Button.vue'
+import GlassCard from '@/components/ui/GlassCard.vue'
 
 const hrStore = useHRStore()
 

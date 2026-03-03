@@ -8,7 +8,7 @@ import os
 # Import with absolute path handling
 import sys
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -61,7 +61,7 @@ async def get_status():
 
 
 @router.post("/login")
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, background_tasks: BackgroundTasks):
     """Start RPA login process"""
     try:
         # Check if Chrome is installed
@@ -97,6 +97,11 @@ async def login(request: LoginRequest):
 
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["message"])
+
+        # 启动后台监控任务，不阻塞响应
+        if result["status"] == "browser_opened":
+            background_tasks.add_task(monitor_and_broadcast_login)
+            logger.info("Background login monitoring task started")
 
         return result
 
@@ -323,3 +328,28 @@ async def websocket_endpoint(websocket: WebSocket):
 async def broadcast_status(status: dict):
     """Helper function to broadcast status updates"""
     await manager.broadcast({"type": "status_update", "data": status})
+
+
+async def monitor_and_broadcast_login():
+    """后台任务：监控登录过程并广播结果"""
+    try:
+        logger.info("Login monitoring: Starting to monitor login process...")
+        result = await rpa_service.monitor_login()
+        logger.info(f"Login monitoring: Result = {result}")
+
+        # 登录成功后广播状态
+        if result["status"] == "success":
+            status = await rpa_service.get_status()
+            logger.info(f"Login monitoring: Broadcasting success status: {status}")
+            await broadcast_status(status)
+        elif result["status"] == "timeout":
+            logger.warning("Login monitoring: Login timed out after 5 minutes")
+            # 广播超时状态
+            await broadcast_status(await rpa_service.get_status())
+        elif result["status"] == "error":
+            logger.error(f"Login monitoring: Error during login: {result.get('message')}")
+        else:
+            logger.info(f"Login monitoring: Login ended with status: {result['status']}")
+
+    except Exception as e:
+        logger.error(f"Login monitoring: Exception occurred: {e}", exc_info=True)

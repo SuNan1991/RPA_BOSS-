@@ -129,8 +129,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import GlassCard from '@/components/GlassCard.vue'
-import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import GlassCard from '@/components/ui/GlassCard.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
 interface Resume {
   id: number

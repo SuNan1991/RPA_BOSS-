@@ -20,6 +20,14 @@ export default {
             light: 'rgba(255, 255, 255, 0.18)',
             dark: 'rgba(255, 255, 255, 0.08)',
           }
+        },
+        text: {
+          primary: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+        },
+        bg: {
+          primary: 'var(--bg-primary)',
+          secondary: 'var(--bg-secondary)',
         }
       },
       backdropBlur: {

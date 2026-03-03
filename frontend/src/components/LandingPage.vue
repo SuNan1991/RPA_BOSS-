@@ -96,16 +96,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { useAuth } from '@/composables/useAuth'
 import { useTheme } from '@/composables/useTheme'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useRPAStore } from '@/stores/rpa'
-import Button from './Button.vue'
-import StatusIndicator from './StatusIndicator.vue'
-import GlassCard from './GlassCard.vue'
+import Button from './ui/Button.vue'
+import StatusIndicator from './ui/StatusIndicator.vue'
+import GlassCard from './ui/GlassCard.vue'
 
-const { loading, login } = useAuth()
+const authStore = useAuthStore()
+const { loading, login, startPollingLoginStatus, stopPollingLoginStatus } = useAuth()
 const { mode, toggleTheme } = useTheme()
 const { connected } = useWebSocket()
 const rpaStore = useRPAStore()
@@ -133,12 +135,39 @@ const formattedTime = computed(() => {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 })
 
+// 监听登录成功，自动停止倒计时（路由跳转由 App.vue 处理）
+watch(() => authStore.isAuthenticated, (isAuth) => {
+  if (isAuth) {
+    console.log('Login detected in LandingPage, stopping countdown')
+    stopCountdown()
+    showInstructions.value = false
+    showCountdown.value = false
+  }
+})
+
 async function handleLogin() {
   const result = await login()
   if (result.success) {
     showInstructions.value = true
     showCountdown.value = true
     startCountdown()
+
+    // 启动轮询检查登录状态（WebSocket 的备选方案）
+    startPollingLoginStatus((isLogged) => {
+      if (isLogged) {
+        console.log('Login successful via polling')
+        stopCountdown()
+        showInstructions.value = false
+        showCountdown.value = false
+        // authStore 会在 checkStatus 中被更新，触发 watch 和路由跳转
+      } else {
+        // 超时处理
+        console.log('Login polling timeout')
+        showInstructions.value = false
+        showCountdown.value = false
+        rpaStore.reset()
+      }
+    })
   }
 }
 
@@ -150,6 +179,7 @@ function startCountdown() {
       remainingTime.value--
     } else {
       stopCountdown()
+      stopPollingLoginStatus() // 停止轮询
       showInstructions.value = false
       showCountdown.value = false
       rpaStore.reset()
@@ -171,5 +201,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopCountdown()
+  stopPollingLoginStatus() // 清理轮询
 })
 </script>

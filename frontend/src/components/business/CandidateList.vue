@@ -180,9 +180,9 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useHRStore, type Candidate } from '@/stores/hr'
-import Button from './Button.vue'
-import GlassCard from './GlassCard.vue'
+import { useHRStore } from '@/stores/hr'
+import Button from '@/components/ui/Button.vue'
+import GlassCard from '@/components/ui/GlassCard.vue'
 
 const hrStore = useHRStore()
 

@@ -24,7 +24,7 @@ export function useWebSocket() {
     connecting.value = true
 
     try {
-      const wsUrl = `ws://localhost:3000/api/auth/ws`
+      const wsUrl = `ws://localhost:8000/api/auth/ws`
       ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {
@@ -95,7 +95,21 @@ export function useWebSocket() {
 
       case 'status':
       case 'status_update':
-        // Handle auth status updates
+        // Handle auth status updates - 登录成功时更新 authStore
+        console.log('Status update:', data)
+        if (data.data?.is_logged_in) {
+          // 动态导入避免循环依赖
+          import('@/stores/auth').then(({ useAuthStore }) => {
+            const authStore = useAuthStore()
+            authStore.setAuth({
+              isAuthenticated: true,
+              user: data.data.user_info
+            })
+            console.log('Auth state updated: isAuthenticated = true')
+          }).catch(err => {
+            console.error('Failed to update auth state:', err)
+          })
+        }
         break
 
       default:

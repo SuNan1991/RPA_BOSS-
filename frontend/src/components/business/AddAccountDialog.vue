@@ -82,7 +82,7 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
-import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
 const emit = defineEmits<{
   success: []

@@ -38,16 +38,24 @@ class BrowserManager:
 
             # Get anti-detection configuration
             co = AntiDetection.get_config()
+            logger.info(f"Anti-detection config: {co}")
+
+            if co is None:
+                logger.warning("Anti-detection config returned None, using defaults")
 
             # Create browser instance with page
+            logger.info("Creating ChromiumPage instance...")
             self._browser = ChromiumPage(addr_or_opts=co)
             self._start_time = datetime.now()
 
-            logger.info("Browser started successfully")
+            # 立即注入反检测脚本
+            AntiDetection.inject_anti_detection_scripts(self._browser)
+
+            logger.info("Browser started successfully with anti-detection scripts")
             return self._browser
 
         except Exception as e:
-            logger.error(f"Failed to start browser: {e}")
+            logger.error(f"Failed to start browser: {e}", exc_info=True)
             raise
 
     def close_browser(self) -> bool:

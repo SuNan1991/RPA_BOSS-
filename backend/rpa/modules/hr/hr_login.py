@@ -48,11 +48,10 @@ class HRLoginModule(BaseModule):
             if session_manager:
                 # 同步方式获取会话（实际使用时在外部异步处理）
                 import asyncio
-                try:
-                    loop = asyncio.get_event_loop()
-                    existing_session = loop.run_until_complete(
-                        session_manager.load_session_for_account(account_id)
-                    )
+                loop = asyncio.get_event_loop()
+                existing_session = loop.run_until_complete(
+                    session_manager.load_session_for_account(account_id)
+                )
                 if existing_session:
                     # 尝试使用已有会话
                     if self._try_auto_login(page, existing_session["cookies"]):

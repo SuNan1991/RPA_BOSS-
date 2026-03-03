@@ -57,7 +57,7 @@ class RPAService:
         try:
             self._login_in_progress = True
 
-            # Start browser
+            # Start browser (已包含反检测脚本注入)
             browser = self.browser_manager.start_browser()
 
             # Navigate to BOSS Zhipin login page
@@ -65,6 +65,15 @@ class RPAService:
             browser.get(login_url)
 
             logger.info(f"Navigated to {login_url}")
+
+            # 等待页面加载
+            await asyncio.sleep(2)
+
+            # 再次注入反检测脚本（确保在新页面生效）
+            from rpa.modules.anti_detection import AntiDetection
+            AntiDetection.inject_anti_detection_scripts(browser)
+
+            logger.info("Anti-detection scripts re-injected after page load")
 
             # Log login attempt
             await self._log_login_attempt(None, success=False, failure_reason="Login started")

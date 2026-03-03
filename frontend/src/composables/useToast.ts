@@ -4,7 +4,7 @@
  */
 
 import { h, render } from 'vue'
-import Toast from '@/components/Toast.vue'
+import Toast from '@/components/ui/Toast.vue'
 
 export type ToastVariant = 'success' | 'error' | 'warning' | 'info'
 

@@ -81,13 +81,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useHRStore } from '@/stores/hr'
 import { useTheme } from '@/composables/useTheme'
-import AccountSwitcher from '@/components/AccountSwitcher.vue'
-import CandidateSearch from '@/components/CandidateSearch.vue'
-import CandidateList from '@/components/CandidateList.vue'
-import GlassCard from '@/components/GlassCard.vue'
+import AccountSwitcher from '@/components/business/AccountSwitcher.vue'
+import CandidateSearch from '@/components/business/CandidateSearch.vue'
+import CandidateList from '@/components/business/CandidateList.vue'
+import GlassCard from '@/components/ui/GlassCard.vue'
 
 const hrStore = useHRStore()
 const { mode, toggleTheme } = useTheme()

@@ -3,7 +3,6 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { UserInfo } from '@/types'
 
 // HR 账户接口
 export interface HRAccount {

@@ -58,10 +58,10 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuth } from '@/composables/useAuth'
 import { useTheme } from '@/composables/useTheme'
 import { useWebSocket } from '@/composables/useWebSocket'
-import Button from './Button.vue'
-import StatusIndicator from './StatusIndicator.vue'
-import AccountCard from './AccountCard.vue'
-import GlassCard from './GlassCard.vue'
+import Button from './ui/Button.vue'
+import StatusIndicator from './ui/StatusIndicator.vue'
+import AccountCard from './business/AccountCard.vue'
+import GlassCard from './ui/GlassCard.vue'
 
 const { loading, logout } = useAuth()
 const { mode, toggleTheme } = useTheme()

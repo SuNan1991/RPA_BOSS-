@@ -3,7 +3,6 @@ Session Manager - Handle session persistence with encryption
 """
 
 import json
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
@@ -12,8 +11,9 @@ import aiosqlite
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SessionManager:
@@ -128,6 +128,12 @@ class SessionManager:
                 # Parse user info
                 user_info = json.loads(user_info_json) if user_info_json else None
 
+                # user_info 是可选的，只要有 cookies 就认为 session 有效
+                # 如果没有 user_info，设置一个默认值
+                if not user_info:
+                    logger.info("Session has no user_info, using default")
+                    user_info = {"username": "BOSS用户"}
+
                 logger.info("Session loaded successfully")
                 return {"cookies": cookies, "user_info": user_info}
 
@@ -207,6 +213,50 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to cleanup old sessions: {e}")
             return 0
+
+    async def cleanup_invalid_sessions(self) -> dict[str, int]:
+        """
+        Clean up sessions with missing or invalid user_info
+
+        Returns:
+            dict with cleanup statistics
+        """
+        try:
+            conn = await self._get_db()
+            try:
+                # Delete sessions with NULL or empty user_info
+                cursor = await conn.execute("""
+                    DELETE FROM sessions
+                    WHERE user_info IS NULL
+                       OR user_info = ''
+                       OR user_info = 'null'
+                       OR user_info = '{}'
+                """)
+                deleted_sessions = cursor.rowcount
+
+                # Also clean up account_sessions
+                cursor = await conn.execute("""
+                    DELETE FROM account_sessions
+                    WHERE user_info IS NULL
+                       OR user_info = ''
+                       OR user_info = 'null'
+                       OR user_info = '{}'
+                """)
+                deleted_account_sessions = cursor.rowcount
+
+                await conn.commit()
+
+                logger.info(f"Cleaned up {deleted_sessions} invalid sessions and {deleted_account_sessions} invalid account sessions")
+                return {
+                    "sessions_deleted": deleted_sessions,
+                    "account_sessions_deleted": deleted_account_sessions
+                }
+            finally:
+                await conn.close()
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup invalid sessions: {e}")
+            return {"sessions_deleted": 0, "account_sessions_deleted": 0}
 
     # ==================== 账户会话管理方法 ====================
 
@@ -309,6 +359,13 @@ class SessionManager:
 
                 # 解析用户信息
                 user_info = json.loads(user_info_json) if user_info_json else None
+
+                # 验证 user_info 是否有效 - 如果无效则视为未登录
+                if not user_info or not user_info.get("username"):
+                    logger.warning(f"Session for account {account_id} has no valid user_info, treating as invalid")
+                    await self.delete_session_for_account(account_id)
+                    await conn.close()
+                    return None
 
                 # 更新最后使用时间
                 await conn.execute(

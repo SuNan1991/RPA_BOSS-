@@ -17,12 +17,19 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Actions
   function setAuth(authData: { isAuthenticated: boolean; user?: UserInfo | null; session?: any }) {
-    isAuthenticated.value = authData.isAuthenticated
-    user.value = authData.user || null
-    session.value = authData.session || null
+    // 验证：只有 isAuthenticated=true 且 user 有效时才设置认证状态
+    const isValidAuth = authData.isAuthenticated && authData.user && Object.keys(authData.user).length > 0
 
-    // Persist to localStorage
-    if (authData.isAuthenticated) {
+    if (authData.isAuthenticated && !isValidAuth) {
+      console.warn('setAuth called with isAuthenticated=true but no valid user info - treating as not authenticated')
+    }
+
+    isAuthenticated.value = isValidAuth
+    user.value = isValidAuth ? authData.user : null
+    session.value = isValidAuth ? (authData.session || null) : null
+
+    // Persist to localStorage only if valid
+    if (isValidAuth) {
       localStorage.setItem('auth', JSON.stringify({
         isAuthenticated: true,
         user: authData.user
@@ -44,10 +51,24 @@ export const useAuthStore = defineStore('auth', () => {
     if (stored) {
       try {
         const data = JSON.parse(stored)
-        isAuthenticated.value = data.isAuthenticated
-        user.value = data.user
+
+        // 验证：只有 user 有效才恢复认证状态
+        const hasValidUser = data.user && Object.keys(data.user).length > 0
+
+        if (data.isAuthenticated && hasValidUser) {
+          isAuthenticated.value = true
+          user.value = data.user
+        } else {
+          // 清除无效的存储数据
+          console.warn('Invalid auth data in localStorage - clearing')
+          localStorage.removeItem('auth')
+          isAuthenticated.value = false
+          user.value = null
+        }
       } catch (e) {
         console.error('Error loading auth from storage:', e)
+        // 清除损坏的数据
+        localStorage.removeItem('auth')
       }
     }
   }

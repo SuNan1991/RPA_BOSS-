@@ -3,6 +3,7 @@
 基于 loguru 实现统一日志管理、文件持久化、WebSocket 实时流、结构化日志
 """
 
+import asyncio
 import re
 import sys
 from datetime import datetime
@@ -21,10 +22,13 @@ class LogManager:
         self._module_levels: dict[str, str] = {}
         self._websocket_connections: list[WebSocket] = []
         self._ws_buffer: list[dict[str, Any]] = []
-        self._ws_buffer_size = 100
+        self._ws_buffer_size = 10  # 降低缓冲区大小，加快响应速度
         self._ws_last_flush = datetime.now()
-        self._ws_flush_interval = 1  # second
+        self._ws_flush_interval = 0.5  # second，降低刷新间隔
         self._connection_manager = None
+        # 使用 asyncio.Queue 来传递日志消息（线程安全）
+        self._log_queue: asyncio.Queue = None
+        self._queue_task: asyncio.Task = None
 
     def setup(self):
         """初始化全局日志配置"""
@@ -80,7 +84,8 @@ class LogManager:
 
     def _create_log_directory(self):
         """创建日志目录结构"""
-        log_dir = Path("backend/logs")
+        # 使用相对于 backend 目录的路径
+        log_dir = Path(__file__).parent.parent.parent / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         archive_dir = log_dir / "archive"
@@ -105,7 +110,8 @@ class LogManager:
 
     def _add_file_handler(self):
         """添加文件处理器（轮转、压缩、保留）"""
-        log_dir = Path("backend/logs")
+        # 使用相对于 backend 目录的路径
+        log_dir = Path(__file__).parent.parent.parent / "logs"
 
         # Application log (all levels)
         logger.add(
@@ -136,9 +142,35 @@ class LogManager:
     def _add_websocket_handler(self):
         """
         添加 WebSocket 自定义处理器
-        注意：这个处理器不会直接 add 到 logger，而是通过 _broadcast_to_websocket 方法
+        将日志实时推送到所有连接的 WebSocket 客户端
         """
-        pass  # WebSocket handler is managed through broadcast method
+        def websocket_sink(message):
+            """自定义 sink 函数，将日志广播到 WebSocket"""
+            record = message.record
+
+            # 构建日志条目
+            log_entry = {
+                "timestamp": record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                "level": record["level"].name,
+                "module": record["extra"].get("module", record["name"]),
+                "function_line": f"{record['function']}:{record['line']}",
+                "message": record["message"],
+            }
+
+            # 如果有异常信息
+            if record.get("exception"):
+                log_entry["exception"] = str(record["exception"])
+
+            # 广播到 WebSocket
+            self._broadcast_to_websocket(log_entry)
+
+        # 添加自定义处理器，只推送 INFO 及以上级别的日志
+        logger.add(
+            websocket_sink,
+            level="INFO",
+            format="{message}",
+            filter=self._sensitive_data_filter,
+        )
 
     def _sensitive_data_filter(self, record) -> bool:
         """
@@ -185,52 +217,18 @@ class LogManager:
             )
 
     def _broadcast_to_websocket(self, record: dict[str, Any]):
-        """广播日志到所有 WebSocket 连接"""
+        """广播日志到所有 WebSocket 连接 - 只添加到缓冲区，实际发送由 WebSocket 端点处理"""
         if not self._websocket_connections:
             return
 
-        # Add to buffer
+        # Add to buffer (线程安全)
         self._ws_buffer.append(record)
-
-        # Flush if buffer is full or time to flush
-        if (
-            len(self._ws_buffer) >= self._ws_buffer_size
-            or (datetime.now() - self._ws_last_flush).total_seconds() >= self._ws_flush_interval
-        ):
-            self._flush_websocket_buffer()
-
-    def _flush_websocket_buffer(self):
-        """刷新 WebSocket 缓冲区"""
-        if not self._ws_buffer:
-            return
-
-        # Remove dead connections
-        self._websocket_connections = [
-            ws
-            for ws in self._websocket_connections
-            if not getattr(ws, "client_state", None) == 3  # 3 = disconnected
-        ]
-
-        # Broadcast to all live connections
-        for ws in self._websocket_connections:
-            try:
-                import asyncio
-
-                if asyncio.iscoroutinefunction(ws.send_json):
-                    # Async send
-                    asyncio.create_task(ws.send_json(self._ws_buffer))
-                else:
-                    # Sync send
-                    ws.send_json(self._ws_buffer)
-            except Exception as e:
-                logger.error(f"Failed to send logs to WebSocket: {e}")
-
-        self._ws_buffer.clear()
         self._ws_last_flush = datetime.now()
 
     def get_log_stats(self) -> dict[str, Any]:
         """获取日志统计信息"""
-        log_dir = Path("backend/logs")
+        # 使用相对于 backend 目录的路径
+        log_dir = Path(__file__).parent.parent.parent / "logs"
 
         # Calculate total log file size
         total_size = sum(f.stat().st_size for f in log_dir.glob("*.log") if f.is_file())

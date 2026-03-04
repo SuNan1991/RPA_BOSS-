@@ -4,14 +4,15 @@ Anti-Detection Module - Configure browser to avoid bot detection
 
 from __future__ import annotations
 
-import logging
 import random
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from DrissionPage import ChromiumPage
 
-logger = logging.getLogger(__name__)
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class AntiDetection:

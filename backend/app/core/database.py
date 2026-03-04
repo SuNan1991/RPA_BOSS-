@@ -8,6 +8,9 @@ from typing import Optional
 import aiosqlite
 
 from .config import settings
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Database:
@@ -30,13 +33,13 @@ class Database:
         await self._connection.execute("PRAGMA synchronous=NORMAL")
         await self._connection.execute("PRAGMA foreign_keys=ON")
 
-        print(f"Connected to SQLite: {self.db_path}")
+        logger.info(f"Connected to SQLite: {self.db_path}")
 
     async def close(self):
         """关闭数据库连接"""
         if self._connection:
             await self._connection.close()
-            print("Closed SQLite connection")
+            logger.info("Closed SQLite connection")
 
     async def get_connection(self) -> aiosqlite.Connection:
         """获取数据库连接"""
@@ -58,7 +61,7 @@ async def init_database():
     """初始化数据库（创建schema）"""
     # 总是调用 create_schema，因为它使用 CREATE TABLE IF NOT EXISTS
     # 这样可以确保所有表都存在
-    print("Ensuring database schema is up to date...")
+    logger.info("Ensuring database schema is up to date...")
     await create_schema()
 
 
@@ -154,4 +157,4 @@ async def create_schema():
     )
 
     await conn.commit()
-    print("Database schema created successfully")
+    logger.info("Database schema created successfully")

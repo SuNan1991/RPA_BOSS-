@@ -2,7 +2,6 @@
 HR 功能 API 端点
 """
 
-import logging
 import os
 
 # Import with absolute path handling
@@ -14,9 +13,10 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from app.core.database import db
+from app.core.logging import get_logger
 from app.services.hr_service import HRService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/hr", tags=["hr"])
 

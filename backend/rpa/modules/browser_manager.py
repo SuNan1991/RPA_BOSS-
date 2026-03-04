@@ -3,16 +3,16 @@ Browser Manager - Singleton pattern for managing browser instance
 """
 
 import asyncio
-import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
 from DrissionPage import ChromiumPage
 
+from app.core.logging import get_logger
 # Use absolute import to avoid relative import issues
 from rpa.modules.anti_detection import AntiDetection
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class BrowserManager:

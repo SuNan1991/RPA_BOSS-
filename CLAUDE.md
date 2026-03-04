@@ -643,3 +643,364 @@ HomeView.vue:2:3
 ```
 
 **关键**：第2层的所有开始标签必须缩进相同，它们的子元素（第3层）再多缩进一层。
+
+---
+
+## 2026-03-04 登录状态判断的正确模式
+
+### 错误现象
+
+点击"启动BOSS网页"按钮后出现"网络错误，请重试"，但几秒后界面错误地切换到已登录状态，实际上浏览器并未启动。
+
+### 根本原因
+
+1. **数据库中存在无效session** - 有cookies但user_info为空
+2. **后端判断逻辑缺陷** - `is_logged_in`只检查session是否存在，不验证user_info
+3. **前端盲目信任后端** - 直接使用`is_logged_in`值，不验证user_info是否存在
+
+### ❌ 错误模式：只检查session是否存在
+
+```python
+# 后端 rpa_service.py
+# ❌ 错误 - session存在但user_info可能为空
+is_logged_in = session is not None
+```
+
+```typescript
+// 前端 useWebSocket.ts
+// ❌ 错误 - 直接使用is_logged_in
+if (data.data?.is_logged_in) {
+  authStore.setAuth({ isAuthenticated: true })
+}
+```
+
+```typescript
+// 前端 auth.ts
+// ❌ 错误 - isAuthenticated为true就持久化
+if (authData.isAuthenticated) {
+  localStorage.setItem('auth', ...)
+}
+```
+
+### ✅ 正确模式：同时检查session和user_info
+
+```python
+# 后端 rpa_service.py
+# ✅ 正确 - session和user_info都必须存在
+user_info = session.get("user_info") if session else None
+is_logged_in = session is not None and user_info is not None and bool(user_info)
+```
+
+```python
+# 后端 session_manager.py - load_session方法
+# ✅ 正确 - 如果user_info无效，返回None
+user_info = json.loads(user_info_json) if user_info_json else None
+
+if not user_info or not user_info.get("username"):
+    logger.warning("Session has no valid user_info, treating as invalid")
+    await self.delete_session()
+    return None
+```
+
+```typescript
+// 前端 useWebSocket.ts
+// ✅ 正确 - 同时验证user_info
+const isLoggedIn = data.data?.is_logged_in
+const userInfo = data.data?.user_info
+const hasValidUserInfo = userInfo && Object.keys(userInfo).length > 0
+
+if (isLoggedIn && hasValidUserInfo) {
+  authStore.setAuth({ isAuthenticated: true, user: userInfo })
+}
+```
+
+```typescript
+// 前端 auth.ts - setAuth方法
+// ✅ 正确 - 验证完整性后再设置状态
+const isValidAuth = authData.isAuthenticated && authData.user && Object.keys(authData.user).length > 0
+
+if (authData.isAuthenticated && !isValidAuth) {
+  console.warn('setAuth called with isAuthenticated=true but no valid user info')
+}
+
+isAuthenticated.value = isValidAuth
+user.value = isValidAuth ? authData.user : null
+
+// 只持久化有效的认证状态
+if (isValidAuth) {
+  localStorage.setItem('auth', ...)
+} else {
+  localStorage.removeItem('auth')
+}
+```
+
+```typescript
+// 前端 auth.ts - loadFromStorage方法
+// ✅ 正确 - 验证加载的数据完整性
+const hasValidUser = data.user && Object.keys(data.user).length > 0
+
+if (data.isAuthenticated && hasValidUser) {
+  isAuthenticated.value = true
+  user.value = data.user
+} else {
+  // 清除无效的存储数据
+  localStorage.removeItem('auth')
+}
+```
+
+### 修改的文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| `backend/rpa/modules/session_manager.py` | `load_session` 验证 user_info，无效则返回None |
+| `backend/app/services/rpa_service.py` | `get_status` 双重验证 session 和 user_info |
+| `frontend/src/stores/auth.ts` | `setAuth` 和 `loadFromStorage` 验证完整性 |
+| `frontend/src/composables/useWebSocket.ts` | `status` 消息处理验证 user_info |
+
+### 防御性编程原则
+
+1. **后端**：不要只检查记录是否存在，要检查关键数据是否完整
+2. **前端**：不要盲目信任后端返回的状态，要做二次验证
+3. **持久化**：存储前验证数据完整性，加载时再次验证
+4. **清理**：定期清理无效数据，避免脏数据影响判断
+
+---
+
+## 2026-03-04 前后端端口配置一致性
+
+### 错误现象
+
+点击"启动BOSS网页"按钮后出现"网络错误，请重试"提示，浏览器没有启动。
+
+### 根本原因
+
+**前端 API baseURL 配置的端口与后端实际运行端口不一致**
+
+| 配置位置 | 错误值 | 正确值 |
+|----------|--------|--------|
+| `frontend/.env.development` | `localhost:3000` | `localhost:8000` |
+| `frontend/vite.config.ts` | `localhost:8000` | ✅ 正确 |
+| `backend/app/core/config.py` | `PORT: 8000` | ✅ 正确 |
+
+### 问题链路
+
+1. 用户点击按钮 → 前端调用 `api.post('/api/auth/login')`
+2. Axios 使用 `baseURL = http://localhost:3000`
+3. 请求发送到 `http://localhost:3000/api/auth/login`
+4. 端口 3000 没有服务运行 → 请求失败
+5. 捕获错误显示"网络错误，请重试"
+
+### 检查清单：修改端口配置时必须同时检查
+
+| 文件 | 配置项 | 说明 |
+|------|--------|------|
+| `frontend/.env.development` | `VITE_API_BASE_URL` | 前端 API 基础地址 |
+| `frontend/vite.config.ts` | `server.proxy['/api'].target` | Vite 开发服务器代理目标 |
+| `backend/app/core/config.py` | `PORT` | 后端实际运行端口 |
+
+### 正确配置示例
+
+```bash
+# frontend/.env.development
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+```typescript
+// frontend/vite.config.ts
+server: {
+  port: 5678,  // 前端开发服务器端口（可以不同）
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8000',  // 必须与后端端口一致
+      changeOrigin: true,
+    }
+  }
+}
+```
+
+```python
+# backend/app/core/config.py
+PORT: int = 8000  # 后端实际端口
+```
+
+### 注意事项
+
+1. **axios baseURL 会绕过 Vite 代理**
+   - 如果 axios 配置了 `baseURL: 'http://localhost:xxx'`
+   - 请求会直接发到该地址，不走 Vite 代理
+   - Vite 代理只在浏览器直接请求相对路径时生效
+
+2. **保持三个端口配置一致**
+   - `.env.development` 的端口 = 后端实际端口
+   - `vite.config.ts` 代理目标 = 后端实际端口
+   - `config.py` 的 PORT = 后端实际端口
+
+3. **前端开发服务器端口可以不同**
+   - Vite 开发服务器可以运行在 5678
+   - 但 API 请求必须指向后端端口 8000
+
+---
+
+## 系统架构设计原则（避免常见错误）
+
+### 一、配置集中管理原则
+
+#### 问题模式
+配置分散在多个文件中，修改时遗漏导致不一致。
+
+#### 设计原则
+
+1. **单一配置源**
+   - 端口、URL等配置应该有唯一的定义位置
+   - 其他地方通过引用获取，而不是重复定义
+
+2. **配置依赖图**
+   ```
+   backend/config.py (PORT=8000)
+         ↓
+   frontend/.env.development (引用后端端口)
+         ↓
+   frontend/vite.config.ts (代理目标引用环境变量)
+   ```
+
+3. **启动时校验**
+   - 应用启动时检查配置一致性
+   - 不一致时发出警告或拒绝启动
+
+---
+
+### 二、第三方库API兼容性
+
+#### 问题模式
+直接使用第三方库API，不检查版本兼容性，升级依赖后代码崩溃。
+
+#### 设计原则
+
+1. **封装第三方库调用**
+   ```python
+   # ❌ 错误 - 直接使用第三方API
+   cookies = browser.cookies(as_dict=True)
+
+   # ✅ 正确 - 封装为项目内部方法
+   def get_browser_cookies(browser) -> list:
+       """封装DrissionPage的cookies方法，处理版本差异"""
+       try:
+           return browser.cookies(all_domains=True, all_info=True)
+       except TypeError:
+           # 降级处理旧版本API
+           return browser.cookies()
+   ```
+
+2. **版本检测机制**
+   - 在应用启动时检测关键依赖版本
+   - 记录版本信息到日志
+   - 不兼容时发出警告
+
+3. **依赖锁定**
+   - 使用 `requirements.lock` 或 `poetry.lock` 锁定版本
+   - 升级依赖前必须测试API变化
+
+---
+
+### 三、数据验证的防御性设计
+
+#### 问题模式
+验证逻辑过于严格，缺少可选字段就删除整个记录，导致数据丢失。
+
+#### 设计原则
+
+1. **区分必需字段和可选字段**
+   ```python
+   # ✅ 正确的设计
+   @dataclass
+   class Session:
+       cookies: list        # 必需 - 没有cookies无法工作
+       user_info: dict      # 可选 - 有默认值
+       created_at: datetime # 必需
+
+       def is_valid(self) -> bool:
+           # 只验证必需字段
+           return bool(self.cookies)
+
+       def get_display_name(self) -> str:
+           # 可选字段提供默认值
+           return self.user_info.get("username", "默认用户")
+   ```
+
+2. **降级策略**
+   - 核心数据缺失 → 记录无效
+   - 辅助数据缺失 → 使用默认值，记录有效
+
+3. **永不自动删除数据**
+   - 验证失败时标记为无效，而不是删除
+   - 让用户或定时任务决定是否清理
+
+---
+
+### 四、进程管理规范
+
+#### 问题模式
+多个相同服务进程同时运行，端口冲突或请求被错误进程处理。
+
+#### 设计原则
+
+1. **启动前端口检查**
+   - 启动服务前检查端口是否被占用
+   - 被占用时提示用户选择：终止旧进程或使用其他端口
+
+2. **PID文件锁定**
+   ```python
+   # 服务启动时写入PID文件
+   PID_FILE = "backend/server.pid"
+
+   def acquire_lock():
+       if os.path.exists(PID_FILE):
+           old_pid = read_pid(PID_FILE)
+           if is_process_running(old_pid):
+               raise RuntimeError(f"Server already running (PID: {old_pid})")
+       write_pid(PID_FILE, os.getpid())
+   ```
+
+3. **优雅关闭**
+   - 捕获终止信号，清理资源
+   - 删除PID文件
+   - 通知依赖服务
+
+---
+
+### 五、日志驱动的可观测性
+
+#### 问题模式
+错误发生时没有足够信息定位问题，只能靠猜测。
+
+#### 设计原则
+
+1. **关键路径全覆盖**
+   - 每个外部调用（API、数据库、浏览器）前后都要记录
+   - 记录输入参数和输出结果
+
+2. **结构化日志**
+   ```python
+   logger.info("API called", extra={
+       "module": "rpa_service",
+       "action": "extract_cookies",
+       "browser_url": browser.url,
+       "cookies_count": len(cookies)
+   })
+   ```
+
+3. **错误上下文**
+   - 捕获异常时记录完整的调用栈
+   - 记录导致错误的输入数据
+   - 记录错误发生时的系统状态
+
+---
+
+### 六、本次错误的架构反思
+
+| 错误 | 根本原因 | 架构改进 |
+|------|----------|----------|
+| 端口配置不一致 | 配置分散，无校验 | 集中配置管理 + 启动校验 |
+| API参数错误 | 直接调用第三方API | 封装适配层 + 版本检测 |
+| Session被删除 | 验证逻辑过严 | 区分必需/可选字段 + 降级策略 |
+| 多进程冲突 | 无进程管理 | PID锁 + 启动前检查 |

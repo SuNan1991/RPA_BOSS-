@@ -3,7 +3,6 @@ RPA Service - Handle RPA login operations
 """
 
 import asyncio
-import logging
 import os
 import sys
 from datetime import datetime
@@ -14,7 +13,9 @@ backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-logger = logging.getLogger(__name__)
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class RPAService:
@@ -166,7 +167,8 @@ class RPAService:
             list of cookie dictionaries
         """
         try:
-            cookies = browser.cookies(as_dict=True)
+            # DrissionPage 4.x: cookies() 返回列表，使用 all_domains=True 获取所有域的 cookies
+            cookies = browser.cookies(all_domains=True, all_info=True)
 
             # Filter for zhipin.com domain
             zhipin_cookies = [
@@ -340,9 +342,13 @@ class RPAService:
             session = await self.session_manager.load_session()
             browser_health = await self.browser_manager.health_check()
 
+            # 防御性验证：同时检查 session 和 user_info 是否存在
+            user_info = session.get("user_info") if session else None
+            is_logged_in = session is not None and user_info is not None and bool(user_info)
+
             return {
-                "is_logged_in": session is not None,
-                "user_info": session.get("user_info") if session else None,
+                "is_logged_in": is_logged_in,
+                "user_info": user_info,
                 "browser_status": browser_health.get("status"),
                 "login_in_progress": self._login_in_progress,
                 "timestamp": datetime.now().isoformat(),

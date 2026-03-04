@@ -95,20 +95,28 @@ export function useWebSocket() {
 
       case 'status':
       case 'status_update':
-        // Handle auth status updates - 登录成功时更新 authStore
+        // Handle auth status updates - 验证 user_info 后再更新认证状态
         console.log('Status update:', data)
-        if (data.data?.is_logged_in) {
+
+        // 验证：is_logged_in 和 user_info 都必须有效
+        const isLoggedIn = data.data?.is_logged_in
+        const userInfo = data.data?.user_info
+        const hasValidUserInfo = userInfo && Object.keys(userInfo).length > 0
+
+        if (isLoggedIn && hasValidUserInfo) {
           // 动态导入避免循环依赖
           import('@/stores/auth').then(({ useAuthStore }) => {
             const authStore = useAuthStore()
             authStore.setAuth({
               isAuthenticated: true,
-              user: data.data.user_info
+              user: userInfo
             })
             console.log('Auth state updated: isAuthenticated = true')
           }).catch(err => {
             console.error('Failed to update auth state:', err)
           })
+        } else if (isLoggedIn && !hasValidUserInfo) {
+          console.warn('Received is_logged_in=true but no valid user_info - ignoring')
         }
         break
 

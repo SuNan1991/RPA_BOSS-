@@ -128,11 +128,11 @@ class SessionManager:
                 # Parse user info
                 user_info = json.loads(user_info_json) if user_info_json else None
 
-                # user_info 是可选的，只要有 cookies 就认为 session 有效
-                # 如果没有 user_info，设置一个默认值
-                if not user_info:
-                    logger.info("Session has no user_info, using default")
-                    user_info = {"username": "BOSS用户"}
+                # 验证 user_info 是否有效 - 如果无效则视为未登录
+                # 不应该使用默认值，因为这会绕过登录验证逻辑
+                if not user_info or not user_info.get("username"):
+                    logger.warning("Session has no valid user_info, treating as invalid")
+                    return None
 
                 logger.info("Session loaded successfully")
                 return {"cookies": cookies, "user_info": user_info}

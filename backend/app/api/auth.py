@@ -35,6 +35,7 @@ class StatusResponse(BaseModel):
     is_logged_in: bool
     user_info: dict | None
     browser_status: str | None
+    browser_opened: bool = False
     login_in_progress: bool
 
 
@@ -127,6 +128,24 @@ async def logout():
         raise
     except Exception as e:
         logger.error(f"Error logging out: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/restore-browser")
+async def restore_browser():
+    """手动恢复浏览器会话（当自动恢复失败时）"""
+    try:
+        result = await rpa_service.restore_browser_session()
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["message"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring browser: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

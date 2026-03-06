@@ -148,10 +148,11 @@ class RPAService:
             username = user_info.get("username") if user_info else "Unknown"
             await self._log_login_attempt(username, success=True)
 
-            # Close browser
-            self.browser_manager.close_browser()
+            # 保持浏览器打开，方便用户继续操作
+            # 浏览器将在用户登出或应用退出时关闭
             self._login_in_progress = False
 
+            logger.info("Login successful, browser kept open for user operations")
             return {"status": "success", "message": "Login successful", "user_info": user_info}
 
         except Exception as e:
@@ -186,62 +187,241 @@ class RPAService:
         """
         Extract user information from page
 
+        使用多种方式获取用户信息:
+        1. CSS 选择器（按优先级尝试多个选择器）
+        2. JavaScript 执行（从 localStorage/window 对象获取）
+        3. API 响应数据（如果有）
+
         Returns:
             dict with user info or None
         """
         try:
-            # Try to get username from page
-            # This will depend on the actual page structure
             user_info = {}
 
-            # Attempt to find user name (selectors may vary)
-            try:
-                # Common selectors for user info on BOSS Zhipin
-                selectors = [
-                    ".user-name",
-                    ".nav-user-name",
-                    '[data-selector="user-name"]',
-                    ".info-nav-user-name",
-                ]
+            # ==================== 方式1: CSS 选择器获取用户名 ====================
+            # BOSS直聘登录后会跳转到主页或个人中心
+            # 按优先级尝试多个选择器
+            username_selectors = [
+                # BOSS直聘导航栏用户名（最常见）
+                ".nav-figure-text",      # 导航栏右侧用户名
+                ".nav-figure .name",     # 导航栏结构中的名字
+                ".nav-figure span",      # 导航栏结构中的 span
 
-                for selector in selectors:
-                    try:
-                        element = browser.find(selector)
-                        if element:
-                            user_info["username"] = element.text
+                # 个人中心页面
+                ".info-primary-name",    # 个人中心主名称
+                ".info-primary .name",   # 个人中心名称区域
+
+                # 通用选择器
+                ".user-name",
+                ".nav-user-name",
+                ".username",
+                "[class*='user-name']",
+                "[class*='userName']",
+
+                # 数据属性
+                '[data-selector="user-name"]',
+                "[data-user-name]",
+            ]
+
+            for selector in username_selectors:
+                try:
+                    element = browser.find(selector)
+                    if element:
+                        text = element.text
+                        if text:
+                            text = text.strip()
+                            # 合理的用户名长度检查
+                            if 1 < len(text) < 30 and text not in ["登录", "注册", "登录/注册"]:
+                                user_info["username"] = text
+                                logger.info(f"通过选择器 '{selector}' 提取到用户名: {text}")
+                                break
+                except Exception as e:
+                    logger.debug(f"选择器 '{selector}' 查找失败: {e}")
+                    continue
+
+            # ==================== 方式2: CSS 选择器获取头像 ====================
+            avatar_selectors = [
+                # BOSS直聘导航栏头像
+                ".nav-figure img",
+                ".nav-avatar img",
+                ".nav-figure-box img",
+
+                # 个人中心头像
+                ".info-primary img",
+                ".user-avatar img",
+
+                # 通用选择器
+                "[class*='avatar'] img",
+                "[class*='user-img']",
+            ]
+
+            for selector in avatar_selectors:
+                try:
+                    element = browser.find(selector)
+                    if element:
+                        src = element.attr("src")
+                        if src and len(src) > 10:
+                            user_info["avatar"] = src
+                            logger.info(f"通过选择器 '{selector}' 提取到头像")
                             break
-                    except Exception:
-                        continue
+                except Exception as e:
+                    logger.debug(f"选择器 '{selector}' 查找失败: {e}")
+                    continue
+
+            # ==================== 方式3: JavaScript 获取额外信息 ====================
+            # 很多网站会在 localStorage 或 window 对象中存储用户信息
+            try:
+                js_user_info = browser.run_js("""
+                    () => {
+                        const result = {};
+
+                        // 检查 localStorage 中的用户信息
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (key && (
+                                key.includes('user') ||
+                                key.includes('userInfo') ||
+                                key.includes('account') ||
+                                key.includes('geek') ||
+                                key.includes('boss')
+                            )) {
+                                try {
+                                    const value = localStorage.getItem(key);
+                                    // 尝试解析 JSON
+                                    try {
+                                        result[key] = JSON.parse(value);
+                                    } catch {
+                                        result[key] = value;
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+
+                        // 检查常见的 window 对象
+                        if (window.__INITIAL_STATE__) {
+                            result.__INITIAL_STATE__ = window.__INITIAL_STATE__;
+                        }
+                        if (window.__NUXT__) {
+                            result.__NUXT__ = window.__NUXT__;
+                        }
+                        if (window.pageData) {
+                            result.pageData = window.pageData;
+                        }
+                        if (window.userInfo) {
+                            result.userInfo = window.userInfo;
+                        }
+
+                        return result;
+                    }
+                """)
+
+                if js_user_info:
+                    logger.debug(f"JavaScript 获取到数据: {list(js_user_info.keys()) if isinstance(js_user_info, dict) else 'non-dict'}")
+
+                    # 从 JavaScript 结果中提取用户名
+                    if not user_info.get("username"):
+                        user_info["username"] = self._extract_username_from_js_result(js_user_info)
+
+                    # 从 JavaScript 结果中提取头像
+                    if not user_info.get("avatar"):
+                        user_info["avatar"] = self._extract_avatar_from_js_result(js_user_info)
 
             except Exception as e:
-                logger.debug(f"Could not extract username: {e}")
+                logger.debug(f"JavaScript 获取用户信息失败: {e}")
 
-            # Try to get avatar URL
-            try:
-                avatar_selectors = [
-                    ".user-avatar img",
-                    ".nav-user-pic img",
-                    '[data-selector="user-avatar"] img',
-                ]
+            # ==================== 方式4: 从页面 URL 或其他元数据获取 ====================
+            # 如果仍然没有用户名，尝试从页面标题或其他地方获取
+            if not user_info.get("username"):
+                try:
+                    # 尝试从页面标题获取
+                    title = browser.title
+                    if title and "-" in title:
+                        # BOSS直聘的标题通常是 "用户名 - BOSS直聘"
+                        possible_name = title.split("-")[0].strip()
+                        if possible_name and possible_name not in ["BOSS直聘", "BOSS", "直聘"]:
+                            user_info["username"] = possible_name
+                            logger.info(f"从页面标题提取到用户名: {possible_name}")
+                except Exception as e:
+                    logger.debug(f"从标题获取用户名失败: {e}")
 
-                for selector in avatar_selectors:
-                    try:
-                        element = browser.find(selector)
-                        if element:
-                            user_info["avatar"] = element.attr("src")
-                            break
-                    except Exception:
-                        continue
-
-            except Exception as e:
-                logger.debug(f"Could not extract avatar: {e}")
-
-            logger.info(f"Extracted user info: {user_info}")
-            return user_info if user_info else None
+            # ==================== 验证结果 ====================
+            if user_info:
+                logger.info(f"成功提取用户信息: {user_info}")
+                return user_info
+            else:
+                logger.warning("未能提取到任何用户信息，可能页面结构已变化")
+                # 返回一个包含默认值的字典，而不是 None
+                # 这样可以避免 session 被视为无效
+                return {"username": "BOSS用户", "source": "default"}
 
         except Exception as e:
-            logger.error(f"Failed to extract user info: {e}")
+            logger.error(f"提取用户信息失败: {e}")
+            # 返回默认值而不是 None
+            return {"username": "BOSS用户", "source": "default", "error": str(e)}
+
+    def _extract_username_from_js_result(self, js_result: dict) -> Optional[str]:
+        """从 JavaScript 结果中提取用户名"""
+        if not isinstance(js_result, dict):
             return None
+
+        # 递归搜索用户名
+        def find_username(obj, depth=0):
+            if depth > 5:  # 限制递归深度
+                return None
+
+            if isinstance(obj, dict):
+                # 直接检查常见的用户名字段
+                for key in ["name", "username", "nickname", "realName", "userName", "displayName"]:
+                    if obj.get(key) and isinstance(obj[key], str) and len(obj[key]) < 30:
+                        return obj[key]
+
+                # 递归检查嵌套对象
+                for value in obj.values():
+                    result = find_username(value, depth + 1)
+                    if result:
+                        return result
+
+            elif isinstance(obj, list):
+                for item in obj:
+                    result = find_username(item, depth + 1)
+                    if result:
+                        return result
+
+            return None
+
+        return find_username(js_result)
+
+    def _extract_avatar_from_js_result(self, js_result: dict) -> Optional[str]:
+        """从 JavaScript 结果中提取头像 URL"""
+        if not isinstance(js_result, dict):
+            return None
+
+        # 递归搜索头像
+        def find_avatar(obj, depth=0):
+            if depth > 5:
+                return None
+
+            if isinstance(obj, dict):
+                # 直接检查常见的头像字段
+                for key in ["avatar", "avatarUrl", "headImg", "photo", "headUrl", "avatarSmall"]:
+                    if obj.get(key) and isinstance(obj[key], str) and obj[key].startswith("http"):
+                        return obj[key]
+
+                # 递归检查嵌套对象
+                for value in obj.values():
+                    result = find_avatar(value, depth + 1)
+                    if result:
+                        return result
+
+            elif isinstance(obj, list):
+                for item in obj:
+                    result = find_avatar(item, depth + 1)
+                    if result:
+                        return result
+
+            return None
+
+        return find_avatar(js_result)
 
     async def apply_session_to_browser(self) -> bool:
         """
@@ -350,6 +530,7 @@ class RPAService:
                 "is_logged_in": is_logged_in,
                 "user_info": user_info,
                 "browser_status": browser_health.get("status"),
+                "browser_opened": self.browser_manager.is_browser_running(),
                 "login_in_progress": self._login_in_progress,
                 "timestamp": datetime.now().isoformat(),
             }
@@ -391,6 +572,29 @@ class RPAService:
     def set_login_progress(self, in_progress: bool):
         """Set login progress flag"""
         self._login_in_progress = in_progress
+
+    async def restore_browser_session(self) -> dict[str, Any]:
+        """
+        恢复浏览器会话（手动恢复）
+
+        用于前端手动恢复浏览器的场景
+
+        Returns:
+            dict: 恢复结果
+        """
+        try:
+            from rpa.modules.browser_restorer import browser_restorer
+
+            result = await browser_restorer.restore_browser_only()
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to restore browser session: {e}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "browser_opened": False
+            }
 
     # ==================== 账户登录方法 ====================
 
@@ -532,10 +736,10 @@ class RPAService:
             username = user_info.get("username") if user_info else "Unknown"
             await self._log_login_attempt(username, success=True)
 
-            # 关闭浏览器
-            self.browser_manager.close_browser()
+            # 保持浏览器打开，方便用户继续操作
             self._login_in_progress = False
 
+            logger.info(f"Login successful for account {account_id}, browser kept open")
             return {
                 "status": "success",
                 "message": "Login successful",

@@ -4,13 +4,12 @@ Session Manager - Handle session persistence with encryption
 
 import json
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Optional
 
-import aiosqlite
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
+from app.core.database import db
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -34,11 +33,8 @@ class SessionManager:
         return Fernet(key)
 
     async def _get_db(self):
-        """Get async database connection"""
-        # Use the unified database path from config
-        db_path = Path(settings.SQLITE_DB_PATH)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        return await aiosqlite.connect(db_path)
+        """获取共享数据库连接（统一使用全局连接，避免并发冲突）"""
+        return await db.get_connection()
 
     async def save_session(self, cookies: list[dict], user_info: Optional[dict] = None) -> bool:
         """
@@ -64,24 +60,22 @@ class SessionManager:
 
             # Save to database
             conn = await self._get_db()
-            try:
-                # Delete existing sessions (singleton pattern)
-                await conn.execute("DELETE FROM sessions")
 
-                # Insert new session
-                await conn.execute(
-                    """
-                    INSERT INTO sessions (cookies, user_info, created_at, expires_at)
-                    VALUES (?, ?, ?, ?)
-                """,
-                    (encrypted_cookies, user_info_json, datetime.now(), expires_at),
-                )
+            # Delete existing sessions (singleton pattern)
+            await conn.execute("DELETE FROM sessions")
 
-                await conn.commit()
-                logger.info("Session saved successfully")
-                return True
-            finally:
-                await conn.close()
+            # Insert new session
+            await conn.execute(
+                """
+                INSERT INTO sessions (cookies, user_info, created_at, expires_at)
+                VALUES (?, ?, ?, ?)
+            """,
+                (encrypted_cookies, user_info_json, datetime.now(), expires_at),
+            )
+
+            await conn.commit()
+            logger.info("Session saved successfully")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to save session: {e}")
@@ -128,13 +122,19 @@ class SessionManager:
                 # Parse user info
                 user_info = json.loads(user_info_json) if user_info_json else None
 
-                # 验证 user_info 是否有效 - 如果无效则视为未登录
-                # 不应该使用默认值，因为这会绕过登录验证逻辑
-                if not user_info or not user_info.get("username"):
-                    logger.warning("Session has no valid user_info, treating as invalid")
+                # 验证 user_info 是否有效
+                # 必须有 user_info 字典，且必须有 username 字段
+                # 注意：extract_user_info 现在会返回默认值 {"username": "BOSS用户", "source": "default"}
+                # 所以只要 user_info 存在且有 username，就视为有效
+                if not user_info:
+                    logger.warning("Session has no user_info, treating as invalid")
                     return None
 
-                logger.info("Session loaded successfully")
+                if not user_info.get("username"):
+                    logger.warning("Session user_info has no username, treating as invalid")
+                    return None
+
+                logger.info(f"Session loaded successfully, username: {user_info.get('username')}")
                 return {"cookies": cookies, "user_info": user_info}
 
         except Exception as e:
@@ -152,13 +152,10 @@ class SessionManager:
         """
         try:
             conn = await self._get_db()
-            try:
-                await conn.execute("DELETE FROM sessions")
-                await conn.commit()
-                logger.info("Session deleted successfully")
-                return True
-            finally:
-                await conn.close()
+            await conn.execute("DELETE FROM sessions")
+            await conn.commit()
+            logger.info("Session deleted successfully")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to delete session: {e}")
@@ -191,24 +188,21 @@ class SessionManager:
         """
         try:
             conn = await self._get_db()
-            try:
-                cutoff_date = datetime.now() - timedelta(days=days)
+            cutoff_date = datetime.now() - timedelta(days=days)
 
-                cursor = await conn.execute(
-                    """
-                    DELETE FROM sessions
-                    WHERE created_at < ?
-                """,
-                    (cutoff_date,),
-                )
+            cursor = await conn.execute(
+                """
+                DELETE FROM sessions
+                WHERE created_at < ?
+            """,
+                (cutoff_date,),
+            )
 
-                deleted_count = cursor.rowcount
-                await conn.commit()
+            deleted_count = cursor.rowcount
+            await conn.commit()
 
-                logger.info(f"Cleaned up {deleted_count} old sessions")
-                return deleted_count
-            finally:
-                await conn.close()
+            logger.info(f"Cleaned up {deleted_count} old sessions")
+            return deleted_count
 
         except Exception as e:
             logger.error(f"Failed to cleanup old sessions: {e}")
@@ -223,36 +217,34 @@ class SessionManager:
         """
         try:
             conn = await self._get_db()
-            try:
-                # Delete sessions with NULL or empty user_info
-                cursor = await conn.execute("""
-                    DELETE FROM sessions
-                    WHERE user_info IS NULL
-                       OR user_info = ''
-                       OR user_info = 'null'
-                       OR user_info = '{}'
-                """)
-                deleted_sessions = cursor.rowcount
 
-                # Also clean up account_sessions
-                cursor = await conn.execute("""
-                    DELETE FROM account_sessions
-                    WHERE user_info IS NULL
-                       OR user_info = ''
-                       OR user_info = 'null'
-                       OR user_info = '{}'
-                """)
-                deleted_account_sessions = cursor.rowcount
+            # Delete sessions with NULL or empty user_info
+            cursor = await conn.execute("""
+                DELETE FROM sessions
+                WHERE user_info IS NULL
+                   OR user_info = ''
+                   OR user_info = 'null'
+                   OR user_info = '{}'
+            """)
+            deleted_sessions = cursor.rowcount
 
-                await conn.commit()
+            # Also clean up account_sessions
+            cursor = await conn.execute("""
+                DELETE FROM account_sessions
+                WHERE user_info IS NULL
+                   OR user_info = ''
+                   OR user_info = 'null'
+                   OR user_info = '{}'
+            """)
+            deleted_account_sessions = cursor.rowcount
 
-                logger.info(f"Cleaned up {deleted_sessions} invalid sessions and {deleted_account_sessions} invalid account sessions")
-                return {
-                    "sessions_deleted": deleted_sessions,
-                    "account_sessions_deleted": deleted_account_sessions
-                }
-            finally:
-                await conn.close()
+            await conn.commit()
+
+            logger.info(f"Cleaned up {deleted_sessions} invalid sessions and {deleted_account_sessions} invalid account sessions")
+            return {
+                "sessions_deleted": deleted_sessions,
+                "account_sessions_deleted": deleted_account_sessions
+            }
 
         except Exception as e:
             logger.error(f"Failed to cleanup invalid sessions: {e}")
@@ -286,29 +278,27 @@ class SessionManager:
             expires_at = datetime.now() + timedelta(days=self.session_expiry_days)
 
             conn = await self._get_db()
-            try:
-                # 使用 REPLACE 实现UPSERT（基于UNIQUE约束）
-                await conn.execute(
-                    """
-                    REPLACE INTO account_sessions
-                    (account_id, cookies, user_info, created_at, expires_at, last_used_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        account_id,
-                        encrypted_cookies,
-                        user_info_json,
-                        datetime.now(),
-                        expires_at,
-                        datetime.now(),
-                    ),
-                )
 
-                await conn.commit()
-                logger.info(f"Session saved for account {account_id}")
-                return True
-            finally:
-                await conn.close()
+            # 使用 REPLACE 实现UPSERT（基于UNIQUE约束）
+            await conn.execute(
+                """
+                REPLACE INTO account_sessions
+                (account_id, cookies, user_info, created_at, expires_at, last_used_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    account_id,
+                    encrypted_cookies,
+                    user_info_json,
+                    datetime.now(),
+                    expires_at,
+                    datetime.now(),
+                ),
+            )
+
+            await conn.commit()
+            logger.info(f"Session saved for account {account_id}")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to save session for account {account_id}: {e}")
@@ -339,7 +329,6 @@ class SessionManager:
 
                 if not row:
                     logger.debug(f"No session found for account {account_id}")
-                    await conn.close()
                     return None
 
                 encrypted_cookies, user_info_json, expires_at = row
@@ -350,7 +339,6 @@ class SessionManager:
                     if expiry_dt < datetime.now():
                         logger.info(f"Session expired for account {account_id}")
                         await self.delete_session_for_account(account_id)
-                        await conn.close()
                         return None
 
                 # 解密cookies
@@ -364,7 +352,6 @@ class SessionManager:
                 if not user_info or not user_info.get("username"):
                     logger.warning(f"Session for account {account_id} has no valid user_info, treating as invalid")
                     await self.delete_session_for_account(account_id)
-                    await conn.close()
                     return None
 
                 # 更新最后使用时间
@@ -377,7 +364,6 @@ class SessionManager:
                     (datetime.now(), account_id),
                 )
                 await conn.commit()
-                await conn.close()
 
                 logger.info(f"Session loaded for account {account_id}")
                 return {"cookies": cookies, "user_info": user_info}
@@ -398,19 +384,17 @@ class SessionManager:
         """
         try:
             conn = await self._get_db()
-            try:
-                await conn.execute(
-                    """
-                    DELETE FROM account_sessions
-                    WHERE account_id = ?
-                """,
-                    (account_id,),
-                )
-                await conn.commit()
-                logger.info(f"Session deleted for account {account_id}")
-                return True
-            finally:
-                await conn.close()
+
+            await conn.execute(
+                """
+                DELETE FROM account_sessions
+                WHERE account_id = ?
+            """,
+                (account_id,),
+            )
+            await conn.commit()
+            logger.info(f"Session deleted for account {account_id}")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to delete session for account {account_id}: {e}")
@@ -437,7 +421,6 @@ class SessionManager:
             """
             ) as cursor:
                 row = await cursor.fetchone()
-                await conn.close()
 
                 if row:
                     return row[0]
@@ -461,34 +444,32 @@ class SessionManager:
         """
         try:
             conn = await self._get_db()
-            try:
-                # 检查会话是否存在
-                async with conn.execute(
-                    """
-                    SELECT id FROM account_sessions WHERE account_id = ?
-                """,
-                    (account_id,),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    if not row:
-                        logger.warning(f"No session found for account {account_id}")
-                        return False
 
-                # 更新最后使用时间
-                await conn.execute(
-                    """
-                    UPDATE account_sessions
-                    SET last_used_at = ?
-                    WHERE account_id = ?
-                """,
-                    (datetime.now(), account_id),
-                )
-                await conn.commit()
+            # 检查会话是否存在
+            async with conn.execute(
+                """
+                SELECT id FROM account_sessions WHERE account_id = ?
+            """,
+                (account_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    logger.warning(f"No session found for account {account_id}")
+                    return False
 
-                logger.info(f"Active account set to {account_id}")
-                return True
-            finally:
-                await conn.close()
+            # 更新最后使用时间
+            await conn.execute(
+                """
+                UPDATE account_sessions
+                SET last_used_at = ?
+                WHERE account_id = ?
+            """,
+                (datetime.now(), account_id),
+            )
+            await conn.commit()
+
+            logger.info(f"Active account set to {account_id}")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to set active account: {e}")
@@ -514,7 +495,6 @@ class SessionManager:
                 (datetime.now(),),
             ) as cursor:
                 rows = await cursor.fetchall()
-                await conn.close()
 
                 return [row[0] for row in rows]
 
@@ -534,24 +514,22 @@ class SessionManager:
         """
         try:
             conn = await self._get_db()
-            try:
-                cutoff_date = datetime.now() - timedelta(days=days)
 
-                cursor = await conn.execute(
-                    """
-                    DELETE FROM account_sessions
-                    WHERE created_at < ?
-                """,
-                    (cutoff_date,),
-                )
+            cutoff_date = datetime.now() - timedelta(days=days)
 
-                deleted_count = cursor.rowcount
-                await conn.commit()
+            cursor = await conn.execute(
+                """
+                DELETE FROM account_sessions
+                WHERE created_at < ?
+            """,
+                (cutoff_date,),
+            )
 
-                logger.info(f"Cleaned up {deleted_count} old account sessions")
-                return deleted_count
-            finally:
-                await conn.close()
+            deleted_count = cursor.rowcount
+            await conn.commit()
+
+            logger.info(f"Cleaned up {deleted_count} old account sessions")
+            return deleted_count
 
         except Exception as e:
             logger.error(f"Failed to cleanup old account sessions: {e}")
@@ -585,7 +563,6 @@ class SessionManager:
                 (account_id,),
             ) as cursor:
                 row = await cursor.fetchone()
-                await conn.close()
 
                 if row and row[0]:
                     expiry_dt = row[0] if isinstance(row[0], datetime) else datetime.fromisoformat(row[0])
@@ -658,7 +635,6 @@ class SessionManager:
                 "SELECT id, phone FROM accounts WHERE id = ?", (account_id,)
             ) as cursor:
                 row = await cursor.fetchone()
-                await conn.close()
 
                 if not row:
                     return {"success": False, "message": "Account not found"}
@@ -694,7 +670,6 @@ class SessionManager:
                 (datetime.now(),),
             ) as cursor:
                 rows = await cursor.fetchall()
-                await conn.close()
 
             expired_accounts = [row[0] for row in rows]
 

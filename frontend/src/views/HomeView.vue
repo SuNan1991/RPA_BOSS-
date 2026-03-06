@@ -44,6 +44,31 @@
 
     <!-- 已登录状态 - 原有内容 -->
     <div v-else>
+      <!-- 浏览器状态提示 -->
+      <div v-if="!browserRunning" class="mb-6">
+        <GlassCard class="p-4 border-l-4 border-yellow-500">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <svg class="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p class="font-medium text-text-primary">浏览器未运行</p>
+                <p class="text-sm text-text-secondary">您的登录状态有效，但浏览器未打开。点击"重新连接"恢复会话。</p>
+              </div>
+            </div>
+            <button
+              @click="handleRestoreBrowser"
+              :disabled="isRestoring"
+              class="px-4 py-2 bg-yellow-500 text-white rounded-lg font-medium hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <span v-if="!isRestoring">重新连接</span>
+              <span v-else>连接中...</span>
+            </button>
+          </div>
+        </GlassCard>
+      </div>
+
       <!-- Welcome Section -->
       <div class="flex items-center justify-between">
         <div>
@@ -263,6 +288,10 @@ const { connected } = useWebSocket()
 // 使用浏览器启动 composable
 const { isLaunching, browserOpened, error: launchError, launch: launchBrowser } = useBrowserLaunch()
 
+// 浏览器状态
+const browserRunning = ref(false)
+const isRestoring = ref(false)
+
 // 倒计时相关
 const countdown = ref(300) // 5分钟
 let countdownTimer: ReturnType<typeof setInterval> | null = null
@@ -325,7 +354,49 @@ onMounted(async () => {
       replyRate: hrStore.statistics.reply_rate || 0,
     }
   }
+
+  // 检查浏览器状态
+  await checkBrowserStatus()
 })
+
+// 检查浏览器状态
+async function checkBrowserStatus() {
+  try {
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    const response = await fetch(`${apiBaseUrl}/api/auth/status`)
+    if (response.ok) {
+      const status = await response.json()
+      browserRunning.value = status.browser_opened || false
+    }
+  } catch (error) {
+    console.error('Failed to check browser status:', error)
+    browserRunning.value = false
+  }
+}
+
+// 重新连接浏览器
+async function handleRestoreBrowser() {
+  isRestoring.value = true
+  try {
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    const response = await fetch(`${apiBaseUrl}/api/auth/restore-browser`, {
+      method: 'POST'
+    })
+    if (response.ok) {
+      const result = await response.json()
+      if (result.browser_opened) {
+        browserRunning.value = true
+        console.log('Browser restored successfully')
+      } else {
+        console.warn('Browser restore failed:', result.message)
+      }
+    }
+  } catch (error) {
+    console.error('Failed to restore browser:', error)
+  } finally {
+    isRestoring.value = false
+  }
+}
 
 // Computed
 const isAuthenticated = computed(() => authStore.isAuthenticated)

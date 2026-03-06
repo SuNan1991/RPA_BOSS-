@@ -33,7 +33,7 @@ class LogStats(BaseModel):
     log_file_size_mb: float
 
 
-@router.get("/", response_model=list[dict])
+@router.get("", response_model=list[dict])
 async def query_logs(
     limit: int = Query(100, ge=1, le=1000, description="返回的日志条数"),
     offset: int = Query(0, ge=0, description="偏移量"),

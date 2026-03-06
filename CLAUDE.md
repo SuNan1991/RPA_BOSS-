@@ -1004,3 +1004,420 @@ PORT: int = 8000  # 后端实际端口
 | API参数错误 | 直接调用第三方API | 封装适配层 + 版本检测 |
 | Session被删除 | 验证逻辑过严 | 区分必需/可选字段 + 降级策略 |
 | 多进程冲突 | 无进程管理 | PID锁 + 启动前检查 |
+
+---
+
+## 2026-03-05 用户信息提取的防错设计
+
+### 错误现象
+
+登录成功后，`extract_user_info` 返回 `None` 或空字典，导致 `user_info` 无效，session 被视为未登录状态。
+
+### 根本原因
+
+1. **选择器过时或不正确**
+   - 使用了错误的 CSS 选择器
+   - 网站页面结构已更新，旧选择器失效
+
+2. **缺少备选方案**
+   - 只依赖一种方式获取数据
+   - 没有尝试 JavaScript 执行、localStorage 等其他方式
+
+3. **过早放弃**
+   - 一个选择器失败就返回 None
+   - 没有尝试所有可能的选择器
+
+4. **没有默认值策略**
+   - 返回 None 导致整个 session 无效
+   - 应该返回默认值保证基本功能
+
+### ❌ 错误模式：单一选择器 + 返回 None
+
+```python
+# ❌ 错误 - 选择器过时，返回 None
+def extract_user_info(self, browser) -> Optional[dict]:
+    user_info = {}
+
+    # 只尝试一个选择器
+    element = browser.find(".user-name")
+    if element:
+        user_info["username"] = element.text
+
+    # 如果没找到就返回 None
+    return user_info if user_info else None
+```
+
+### ✅ 正确模式：多选择器 + JavaScript 备选 + 默认值
+
+```python
+# ✅ 正确 - 多层防御策略
+def extract_user_info(self, browser) -> dict:
+    user_info = {}
+
+    # 第一层：尝试多个 CSS 选择器（按优先级）
+    username_selectors = [
+        ".nav-figure-text",      # BOSS直聘导航栏
+        ".info-primary-name",    # 个人中心
+        ".user-name",            # 通用
+        "[class*='user-name']",  # 模糊匹配
+    ]
+
+    for selector in username_selectors:
+        try:
+            element = browser.find(selector)
+            if element:
+                text = element.text.strip()
+                if 1 < len(text) < 30:  # 合理长度检查
+                    user_info["username"] = text
+                    break
+        except Exception:
+            continue
+
+    # 第二层：JavaScript 从 localStorage/window 获取
+    if not user_info.get("username"):
+        try:
+            js_result = browser.run_js("""
+                () => {
+                    const result = {};
+                    // 检查 localStorage
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.includes('user')) {
+                            result[key] = localStorage.getItem(key);
+                        }
+                    }
+                    return result;
+                }
+            """)
+            # 从 js_result 中提取用户名...
+        except Exception:
+            pass
+
+    # 第三层：默认值策略（保证功能可用）
+    if not user_info.get("username"):
+        user_info = {"username": "BOSS用户", "source": "default"}
+        logger.warning("使用默认用户名，页面选择器可能已过时")
+
+    return user_info
+```
+
+### 避免此类错误的设计原则
+
+#### 1. 永远不要假设选择器永远有效
+
+```python
+# ❌ 错误假设
+# "这个选择器昨天还能用，今天一定也能用"
+
+# ✅ 正确态度
+# "网站随时可能更新，需要多层备选方案"
+```
+
+#### 2. 使用优先级策略
+
+```python
+# 优先级从高到低
+PRIORITY_LEVELS = [
+    "网站特有的选择器",      # 最准确，但可能失效
+    "通用的选择器",          # 较稳定
+    "JavaScript 执行",       # 可获取隐藏数据
+    "localStorage 数据",     # 网站本地存储
+    "默认值",                # 最后的保障
+]
+```
+
+#### 3. 添加详细日志
+
+```python
+# ✅ 记录每一步的结果
+for selector in selectors:
+    try:
+        element = browser.find(selector)
+        if element:
+            logger.info(f"选择器 '{selector}' 成功: {element.text}")
+            break
+        else:
+            logger.debug(f"选择器 '{selector}' 未找到元素")
+    except Exception as e:
+        logger.debug(f"选择器 '{selector}' 失败: {e}")
+```
+
+#### 4. 返回默认值而不是 None
+
+```python
+# ❌ 错误 - 返回 None 会导致后续逻辑全部失效
+if not user_info:
+    return None
+
+# ✅ 正确 - 返回默认值，保证基本功能
+if not user_info.get("username"):
+    return {"username": "默认用户", "source": "default"}
+```
+
+#### 5. 创建探测脚本
+
+当选择器失效时，使用独立的探测脚本来找出正确的选择器：
+
+```bash
+# 运行探测脚本
+cd backend
+python scripts/explore_user_info.py
+```
+
+这个脚本会：
+1. 打开浏览器让用户登录
+2. 登录后自动探测页面结构
+3. 找出正确的选择器
+4. 生成修复代码建议
+
+### 修改的文件清单
+
+| 文件 | 修改内容 |
+|------|----------|
+| `backend/app/services/rpa_service.py` | `extract_user_info` 多层防御策略 |
+| `backend/rpa/modules/session_manager.py` | `load_session` 更新验证逻辑 |
+| `backend/scripts/explore_user_info.py` | 新建探测脚本 |
+
+### 快速检查清单
+
+当用户信息提取失败时：
+
+1. **检查选择器是否过时**
+   - [ ] 运行 `python scripts/explore_user_info.py` 探测新选择器
+   - [ ] 更新 `extract_user_info` 中的选择器列表
+
+2. **检查 JavaScript 是否执行成功**
+   - [ ] 查看日志中是否有 JavaScript 执行错误
+   - [ ] 检查 localStorage 中是否有用户数据
+
+3. **检查默认值是否生效**
+   - [ ] 日志中应该有 "使用默认用户名" 的警告
+   - [ ] 如果没有，说明代码逻辑有问题
+
+4. **检查 session 验证逻辑**
+   - [ ] `load_session` 是否正确验证 user_info
+   - [ ] 是否因为 user_info 无效而删除了 session
+
+---
+
+## 2026-03-06 浏览器会话自动恢复架构
+
+### 需求背景
+
+用户期望的行为：
+1. 每次启动服务，先从数据库中读取 session
+2. 如果 session 没有过期 → 直接展示"已登录"界面，**同时自动打开 BOSS 网页**
+3. 如果 session 不存在或已过期 → 展示"启动 BOSS 网页"按钮
+
+### 架构设计
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        服务启动流程                               │
+├─────────────────────────────────────────────────────────────────┤
+│  1. 后端 main.py lifespan 启动                                   │
+│     ↓                                                            │
+│  2. BrowserRestorer.restore_if_valid_session()                  │
+│     ↓                                                            │
+│  ┌─────────────────┬─────────────────┐                           │
+│  │ session 有效    │ session 无效    │                           │
+│  ├─────────────────┼─────────────────┤                           │
+│  │ 自动打开浏览器   │ 不打开浏览器     │                           │
+│  │ 注入 cookies    │                  │                           │
+│  │ 导航到 BOSS     │                  │                           │
+│  └─────────────────┴─────────────────┘                           │
+│     ↓                    ↓                                        │
+│  3. 前端启动，调用 /api/auth/status                               │
+│     ↓                    ↓                                        │
+│  显示已登录界面      显示"启动BOSS网页"按钮                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 核心模块
+
+#### 1. BrowserRestorer（新建）
+
+**文件**: `backend/rpa/modules/browser_restorer.py`
+
+```python
+class BrowserRestorer:
+    """浏览器会话恢复器 - 服务启动时自动恢复登录状态"""
+
+    async def restore_if_valid_session(self) -> bool:
+        """
+        检查并恢复浏览器会话
+        Returns:
+            True: 恢复成功，浏览器已打开
+            False: 无有效 session，需要用户手动登录
+        """
+        # 1. 检查浏览器是否已运行（幂等性）
+        if self.browser_manager.is_browser_running():
+            return True
+
+        # 2. 加载 session
+        session = await self.session_manager.load_session()
+        if not session:
+            return False
+
+        # 3. 启动浏览器
+        browser = self.browser_manager.start_browser()
+
+        # 4. 注入反检测脚本
+        AntiDetection.inject_anti_detection_scripts(browser)
+
+        # 5. 注入 cookies
+        browser.cookies(session["cookies"])
+
+        # 6. 导航到 BOSS 首页
+        browser.get("https://www.zhipin.com")
+
+        # 7. 验证登录状态
+        return await self._verify_login_status(browser)
+```
+
+#### 2. 状态 API 扩展
+
+**文件**: `backend/app/services/rpa_service.py`
+
+```python
+async def get_status(self) -> dict:
+    return {
+        "is_logged_in": is_logged_in,
+        "user_info": user_info,
+        "browser_status": browser_health.get("status"),
+        "browser_opened": self.browser_manager.is_browser_running(),  # 新增
+        "login_in_progress": self._login_in_progress,
+    }
+```
+
+#### 3. 前端状态同步
+
+**文件**: `frontend/src/App.vue`
+
+```typescript
+onMounted(async () => {
+  // 1. 先从 localStorage 快速恢复
+  authStore.loadFromStorage()
+
+  // 2. 与后端同步验证
+  const status = await fetch('/api/auth/status')
+
+  // 情况1: session有效 + 浏览器已打开 → 显示已登录
+  if (status.is_logged_in && status.browser_opened) {
+    authStore.setAuth({ isAuthenticated: true, user: status.user_info })
+  }
+
+  // 情况2: session有效 + 浏览器未打开 → 尝试恢复
+  else if (status.is_logged_in && !status.browser_opened) {
+    await fetch('/api/auth/restore-browser', { method: 'POST' })
+  }
+
+  // 情况3: 无有效session → 清除前端状态
+  else {
+    authStore.clearAuth()
+  }
+})
+```
+
+### 设计原则
+
+#### 1. 单一职责
+
+- `BrowserRestorer` 只负责恢复浏览器会话
+- `RPAService` 负责业务逻辑
+- `Auth API` 负责暴露接口
+
+#### 2. 幂等性
+
+```python
+# 多次调用不会重复打开浏览器
+if self.browser_manager.is_browser_running():
+    return True
+```
+
+#### 3. 优雅降级
+
+```python
+# 恢复失败不阻止服务启动
+try:
+    restored = await browser_restorer.restore_if_valid_session()
+except Exception as e:
+    logger.warning(f"Failed to restore: {e}")
+    # 继续启动，用户可以手动登录
+```
+
+#### 4. 可观测性
+
+每个步骤都有日志记录：
+- "Starting browser session restoration..."
+- "Valid session found for user: xxx"
+- "Browser started successfully"
+- "Cookies injected successfully"
+- "Browser session restored successfully!"
+
+### 避免的错误
+
+#### 错误1：在 Windows 日志中使用 emoji
+
+```python
+# ❌ 错误 - Windows GBK 编码不支持 emoji
+logger.info("✅ Browser session restored")
+
+# ✅ 正确 - 使用 ASCII 字符
+logger.info("[OK] Browser session restored")
+```
+
+#### 错误2：端口配置不一致
+
+```bash
+# ❌ 错误 - 后端 .env 和前端配置不一致
+# backend/.env
+PORT=3000
+
+# frontend/.env.development
+VITE_API_BASE_URL=http://localhost:8000
+
+# ✅ 正确 - 统一使用 8000
+# backend/.env
+PORT=8000
+
+# frontend/.env.development
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+#### 错误3：前端硬编码 API 地址
+
+```typescript
+// ❌ 错误 - 硬编码
+const response = await fetch('http://localhost:8000/api/auth/status')
+
+// ✅ 正确 - 使用环境变量
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const response = await fetch(`${apiBaseUrl}/api/auth/status`)
+```
+
+### 修改的文件清单
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `backend/rpa/modules/browser_restorer.py` | 新建 | 浏览器会话恢复器 |
+| `backend/app/services/rpa_service.py` | 修改 | 添加 `browser_opened` 字段和 `restore_browser_session()` 方法 |
+| `backend/app/api/auth.py` | 修改 | 添加 `/restore-browser` API 端点 |
+| `backend/app/main.py` | 修改 | 启动时调用 `browser_restorer.restore_if_valid_session()` |
+| `backend/.env` | 修改 | 端口从 3000 改为 8000 |
+| `frontend/src/App.vue` | 修改 | 优化启动状态同步逻辑，使用环境变量 |
+| `frontend/src/views/HomeView.vue` | 修改 | 添加浏览器状态提示和"重新连接"按钮 |
+
+### 测试验证
+
+1. **首次启动（无 session）**
+   - 启动服务 → 显示"启动 BOSS 网页"按钮
+   - 点击按钮 → 浏览器打开 → 扫码登录 → 显示已登录界面
+
+2. **重启服务（有有效 session）**
+   - 关闭服务
+   - 重新启动 → 浏览器自动打开 → 直接显示已登录界面
+
+3. **手动恢复**
+   - 如果浏览器意外关闭
+   - 点击"重新连接"按钮 → 恢复浏览器会话

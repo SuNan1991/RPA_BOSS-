@@ -206,7 +206,7 @@ const connectWebSocket = async () => {
   try {
     // 使用环境变量或默认值构建 WebSocket URL
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
     const wsHost = apiBaseUrl.replace(/^https?:\/\//, '')
     ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/logs`)
 

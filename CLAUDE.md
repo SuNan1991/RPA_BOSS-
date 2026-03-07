@@ -1421,3 +1421,1599 @@ const response = await fetch(`${apiBaseUrl}/api/auth/status`)
 3. **手动恢复**
    - 如果浏览器意外关闭
    - 点击"重新连接"按钮 → 恢复浏览器会话
+
+---
+
+## 2026-03-06 BOSS 账号管理功能实现总结
+
+### 功能概述
+
+在系统设置页面实现了完整的 BOSS 账号管理功能，支持：
+- 多账号管理（HR/求职者类型）
+- 账号分组（支持层级结构）
+- 标签系统
+- 批量操作
+- 操作日志
+- 配额管理
+
+### 新增文件清单
+
+#### 后端
+- `backend/migrations/011_enhance_account_management.sql` - 数据库迁移
+- `backend/app/services/account_group_service.py` - 分组管理服务
+- `backend/app/api/account_groups.py` - 分组管理 API
+
+#### 前端
+- `frontend/src/components/account/AccountManagementTab.vue` - 主管理组件
+- `frontend/src/components/account/AccountStatistics.vue` - 统计卡片
+- `frontend/src/components/account/AccountToolbar.vue` - 工具栏
+- `frontend/src/components/account/AccountList.vue` - 账号列表
+- `frontend/src/components/account/AccountCard.vue` - 账号卡片
+- `frontend/src/components/account/AccountGroupTree.vue` - 分组树
+- `frontend/src/components/account/AccountDetailDrawer.vue` - 详情抽屉
+- `frontend/src/components/account/BatchOperationDialog.vue` - 批量操作对话框
+- `frontend/src/components/account/AccountGroupDialog.vue` - 分组编辑对话框
+
+### 遇到的问题和解决方案
+
+#### 问题1：数据库字段与代码不匹配
+
+**现象**：创建账号时，数据库中的 `account_type` 字段总是 `seeker`，而不是传入的 `hr`
+
+**原因**：
+1. 数据库迁移 003 中 `account_type` 的默认值是 `seeker`
+2. `AccountService.create` 方法中使用了 `getattr(account, 'account_type', 'hr')`，但实际上 `account` 对象已经有 `account_type` 属性
+3. 代码修改后服务未重启，旧代码仍在运行
+
+**解决方案**：
+1. 直接使用 `account.account_type` 而不是 `getattr`
+2. 添加调试日志确认数据传递是否正确
+3. 确保每次修改代码后重启服务
+
+**预防措施**：
+```python
+# ❌ 错误 - 使用 getattr 可能返回意外的值
+account_type = getattr(account, 'account_type', 'hr')
+
+# ✅ 正确 - 直接访问属性
+account_type = account.account_type
+
+# ✅ 也可以 - 添加调试日志确认值
+logger.info(f"Account type from request: {account.account_type}")
+```
+
+#### 问题2：后端服务端口被占用
+
+**现象**：启动后端服务时报错 "端口已被占用"
+
+**原因**：之前的进程未正确关闭
+
+**解决方案**：
+```bash
+# 查找并终止占用端口的进程
+netstat -ano | findstr ":8000"
+taskkill /F /PID <PID>
+
+# 或使用 PowerShell
+Stop-Process -Id <PID> -Force
+```
+
+**预防措施**：
+- 在启动脚本中添加端口检查
+- 使用 PID 文件防止重复启动
+
+#### 问题3：前端组件命名冲突
+
+**现象**：`unplugin-vue-components` 报告组件命名冲突
+
+**原因**：
+- `components/business/AccountCard.vue`（旧）
+- `components/account/AccountCard.vue`（新）
+
+**解决方案**：
+- 重命名其中一个组件
+- 或者明确导入路径
+
+#### 问题4：Vue 3 Composition API 的 computed 使用错误
+
+**现象**：`mode.value === 'dark'` 报错 `Property 'value' does not exist`
+
+**原因**：`useTheme()` 返回的 `mode` 已经是 `Ref<string>` 类型，但在 `computed` 中应该使用 `.value` 访问
+
+**正确用法**：
+```typescript
+const { mode } = useTheme()  // mode 是 Ref<ThemeMode>
+
+// ✅ 正确 - 在 computed 中使用 .value
+const isDark = computed(() => mode.value === 'dark')
+
+// ❌ 错误 - 直接比较 Ref 对象
+const isDark = computed(() => mode === 'dark')  // 总是 false
+```
+
+### 最佳实践
+
+#### 1. 数据库迁移设计
+
+```sql
+-- ✅ 好的迁移文件应该：
+-- 1. 使用 IF NOT EXISTS 避免重复创建
+-- 2. 包含回滚说明
+-- 3. 添加必要的索引
+
+-- 创建表
+CREATE TABLE IF NOT EXISTS account_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    parent_id INTEGER REFERENCES account_groups(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_account_groups_parent ON account_groups(parent_id);
+```
+
+#### 2. 服务层方法设计
+
+```python
+# ✅ 好的服务方法应该：
+# 1. 有明确的类型注解
+# 2. 有错误处理
+# 3. 有日志记录
+
+async def create(self, account: AccountCreate) -> AccountResponse:
+    """创建账户
+
+    Args:
+        account: 账户创建模型
+
+    Returns:
+        AccountResponse: 创建的账户
+
+    Raises:
+        ValueError: 如果手机号已存在
+    """
+    logger.info(f"Creating account with phone: {account.phone}")
+
+    try:
+        # 检查重复
+        existing = await self.get_by_phone(account.phone)
+        if existing:
+            raise ValueError(f"手机号 {account.phone} 已存在")
+
+        # 创建账户
+        # ...
+
+    except Exception as e:
+        logger.error(f"Error creating account: {e}")
+        raise
+```
+
+#### 3. 前端组件结构
+
+```typescript
+// ✅ 好的组件结构：
+// 1. 清晰的 props 和 emits 定义
+// 2. 使用 computed 缓存计算结果
+// 3. 使用 TypeScript 类型
+
+interface Props {
+  account: HRAccount
+  selected: boolean
+  isActive: boolean
+}
+
+interface Emits {
+  (e: 'select', accountId: number): void
+  (e: 'login', accountId: number): void
+  (e: 'refresh', accountId: number): void
+}
+
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
+// 使用 computed 缓存
+const statusColor = computed(() => {
+  return props.account.cookie_status === 'valid' ? 'connected' : 'disconnected'
+})
+```
+
+### 开发流程建议
+
+1. **修改代码后必须重启服务**
+   - 后端：`uvicorn` 有热重载，但有时需要手动重启
+   - 前端：Vite 会自动热重载
+
+2. **测试 API 时使用 Python 而不是 curl**
+   - Windows 上的 curl 对 JSON 处理有问题
+   - Python 的 `requests` 库更可靠
+
+3. **检查数据库状态**
+   - 修改后直接查询数据库验证
+   - 不要只依赖 API 响应
+
+4. **查看服务日志**
+   - 后端日志在控制台输出
+   - 前端日志在浏览器开发者工具
+
+
+## 2026-03-06 数据库列映射防错指南
+
+### 错误模式：硬编码索引
+
+**问题**：迁移添加新列后，原有索引位置会错位
+
+\`\`\`python
+# 错误 - 硬编码索引，def _row_to_response(self, row):
+    return Response(
+        id=row[0],
+        phone=row[1],
+        group_id=row[5],  # 迁移后可能不是 group_id！
+    )
+\`\`\`
+
+**原因**：
+1. 初始表有 N 列
+2. 迁移在末尾添加新列
+3. 代码假设的索引与实际列位置不匹配
+
+**正确模式**：
+
+\`\`\`python
+# 方案1: 使用 PRAGMA table_info 获取列名
+async def _row_to_response(self, row):
+    cursor = await self.conn.execute("PRAGMA table_info(table_name)")
+    columns = [col[1] for col in await cursor.fetchall()]
+    row_dict = dict(zip(columns, row))
+    return Response(id=row_dict["id"], phone=row_dict["phone"], ...)
+
+# 方案2: 显式指定列名查询
+cursor = await conn.execute(
+    "SELECT id, phone, group_id FROM table_name WHERE id = ?", (id,)
+)
+
+# 方案3: 使用 aiosqlite.Row 工厂
+conn.row_factory = aiosqlite.Row
+row = await cursor.fetchone()
+return Response(id=row["id"], phone=row["phone"], group_id=row["group_id"])
+\`\`\`
+
+---
+
+## 2026-03-06 Schema 与数据库同步防错
+
+### 错误模式：迁移添加列但未更新 Schema
+
+**问题**：数据库有新列但 Response 模型没有对应字段
+
+\`\`\`python
+# 迁移添加了 account_type 列
+# 但 Schema 没有更新
+class AccountResponse(BaseModel):
+    id: int
+    phone: str
+    # 缺少 account_type！
+\`\`\`
+
+**防错措施**：
+
+1. **迁移文件必须包含 Schema 更新说明**
+   \`\`\`sql
+   -- Migration 003
+   -- TODO: Add account_type to AccountResponse
+   
+   ALTER TABLE accounts ADD COLUMN account_type TEXT;
+   \`\`\`
+
+2. **添加单元测试验证字段完整性**
+   \`\`\`python
+   async def test_response_has_all_db_columns():
+       cursor = await db.execute("PRAGMA table_info(accounts)")
+       db_columns = {col[1] for col in await cursor.fetchall()}
+       
+       response_fields = set(AccountResponse.model_fields.keys())
+       
+       # 排除不需要映射的字段
+       unmapped = db_columns - response_fields - {"password", "salt"}
+       assert not unmapped, f"未映射的数据库列: {unmapped}"
+   \`\`\`
+
+---
+
+## 2026-03-06 批量操作事务保护
+
+### 错误模式：无事务保护的批量操作
+
+**问题**：中途失败导致部分数据已修改，无法恢复
+
+\`\`\`python
+# 错误 - 无事务保护
+for item in items:
+    await delete(item.id)  # 第3个失败，前2个已删除
+await conn.commit()
+\`\`\`
+
+**正确模式**：
+
+\`\`\`python
+# 正确 - 使用事务包装器
+await conn.execute("BEGIN IMMEDIATE TRANSACTION")
+try:
+    for item in items:
+        await delete(item.id)
+    await conn.commit()
+except Exception:
+    await conn.execute("ROLLBACK")
+    raise
+\`\`\`
+
+**注意**：SQLite 默认每个语句是自动提交的，必须显式开启事务。
+
+---
+
+## 2026-03-06 前端组件事件防错
+
+### 错误模式：发送 CustomEvent 无监听器
+
+**问题**：组件发送事件但没有监听器，导致功能失效
+
+\`\`\`typescript
+// 错误 - 发送 CustomEvent 但没有组件监听
+function openDialog() {
+  window.dispatchEvent(new CustomEvent('open-dialog'))
+}
+\`\`\`
+
+**正确模式**：
+
+\`\`\`typescript
+// 方案1: 使用组件引用
+const dialogRef = ref<InstanceType<typeof Dialog>>()
+function openDialog() {
+  dialogRef.value?.open()
+}
+
+// 方案2: 使用 v-model 控制
+const dialogVisible = ref(false)
+function openDialog() {
+  dialogVisible.value = true
+}
+\`\`\`
+
+---
+
+## 2026-03-06 重复定义检测
+
+### 错误模式：同一文件中重复定义类
+
+**问题**：复制粘贴或合并冲突导致同一类定义两次
+
+\`\`\`python
+# 第 50 行
+class LoginRequest(BaseModel):
+    phone: str
+
+# 第 150 行（重复！）
+class LoginRequest(BaseModel):
+    phone: str
+\`\`\`
+
+**防错措施**：
+
+1. **代码审查清单**
+   - [ ] 搜索文件中所有 `class ` 定义
+   - [ ] 检查是否有同名类
+   - [ ] 使用 IDE 的 "Go to Definition" 验证
+
+2. **使用 linter**
+   \`\`\`bash
+   pip install pylint
+   pylint --disable=all --enable=duplicate-code app/
+   \`\`\`
+
+---
+
+## 2026-03-06 高级功能实现 - Toast/合并/批量/监控
+
+### 需求背景
+
+完成账号自动同步后，需要实现4个高级功能：
+1. **Toast通知系统**：替换alert为友好的toast通知
+2. **账号合并功能**：检测和合并重复账号
+3. **批量操作增强**：批量验证Cookie、批量登录等
+4. **账号状态监控**：定时检查Cookie有效性
+
+---
+
+### 关键错误1：FastAPI路由顺序冲突
+
+#### 错误现象
+
+新增 `/api/accounts/duplicates` 端点后，访问时返回错误：
+\`\`\`
+{"detail": [{"type": "int_parsing", "loc": ["path", "account_id"], "msg": "Input should be a valid integer"}]}
+\`\`\`
+
+#### 根本原因
+
+**FastAPI路由匹配按定义顺序，参数化路由 `/{account_id}` 会先匹配 `/duplicates`**
+
+\`\`\`python
+# ❌ 错误顺序
+@router.get("/{account_id}")  # 第100行
+async def get_account(account_id: int):
+    ...
+
+@router.get("/duplicates")  # 第200行 - 永远不会被匹配到！
+async def detect_duplicates():
+    ...
+\`\`\`
+
+#### 正确模式
+
+**具体路由必须在参数化路由之前定义**
+
+\`\`\`python
+# ✅ 正确顺序
+@router.get("/duplicates")  # 具体路径在前
+async def detect_duplicates():
+    ...
+
+@router.get("/{account_id}")  # 参数化路径在后
+async def get_account(account_id: int):
+    ...
+\`\`\`
+
+#### 防错措施
+
+1. **路由定义顺序检查清单**
+   - [ ] 所有具体路径 (`/duplicates`, `/statistics`, `/batch`) 在前
+   - [ ] 所有参数化路径 (`/{id}`, `/{account_id}`) 在后
+   - [ ] 嵌套参数路径 (`/{id}/logs`, `/{id}/validate`) 在最后
+
+2. **使用FastAPI路由排序工具**
+   \`\`\`python
+   # 在开发环境中列出所有路由
+   from fastapi.routing import APIRoute
+   for route in app.routes:
+       if isinstance(route, APIRoute):
+           print(f"{route.methods} {route.path}")
+   \`\`\`
+
+3. **API文档生成时检查**
+   - FastAPI自动生成的文档（`/docs`）会显示路由顺序
+   - 检查是否有路由被"隐藏"（应该显示但没显示）
+
+---
+
+### 关键错误2：重复路由定义
+
+#### 错误现象
+
+同一文件中定义了两次相同的路由：
+\`\`\`python
+# 第40行
+@router.get("/duplicates")
+async def detect_duplicate_accounts():
+    ...
+
+# 第332行（重复！）
+@router.get("/duplicates")
+async def detect_duplicate_accounts():
+    ...
+\`\`\`
+
+#### 根本原因
+
+1. 复制粘贴后忘记删除旧代码
+2. 代码合并时没有清理重复部分
+3. IDE自动完成创建了重复定义
+
+#### 防错措施
+
+1. **搜索重复定义**
+   \`\`\`bash
+   # 搜索重复的路由定义
+   grep -n "^@router\.(get|post|put|delete)" app/api/accounts.py | grep "duplicates"
+   \`\`\`
+
+2. **使用Python的命名空间检查**
+   - 同一文件中不能有两个同名函数
+   - IDE会显示警告
+
+3. **代码审查清单**
+   - [ ] 检查是否有重复的 `@router` 装饰器
+   - [ ] 检查是否有重复的函数名
+   - [ ] 使用 `grep` 验证没有重复
+
+---
+
+### 关键错误3：服务重载失败
+
+#### 错误现象
+
+修改代码后，uvicorn热重载没有生效，API还是返回旧代码的结果。
+
+#### 根本原因
+
+1. **文件保存但uvicorn没有检测到变化**
+2. **Python缓存（.pyc文件）导致旧代码被执行**
+3. **多个进程监听同一端口**
+
+#### 防错措施
+
+1. **验证服务重载成功**
+   \`\`\`bash
+   # 检查日志中是否有 "Reloading..." 消息
+   tail -f backend/logs/app.log | grep "Reloading"
+   \`\`\`
+
+2. **清理Python缓存**
+   \`\`\`bash
+   # 删除所有.pyc缓存文件
+   find backend -name "*.pyc" -delete
+   find backend -name "__pycache__" -type d -exec rm -rf {} +
+   \`\`\`
+
+3. **强制重启服务**
+   \`\`\`bash
+   # 终止所有相关进程
+   netstat -ano | grep ":8000"
+   taskkill /F /PID <pid>
+
+   # 重新启动
+   cd backend && uv run uvicorn app.main:app --reload
+   \`\`\`
+
+4. **验证API端点可用**
+   \`\`\`bash
+   # 检查OpenAPI文档
+   curl http://localhost:8000/docs | grep "duplicates"
+
+   # 或直接测试端点
+   curl http://localhost:8000/api/accounts/duplicates
+   \`\`\`
+
+---
+
+### 实施要点总结
+
+#### 1. 全局错误处理器设计
+
+\`\`\`typescript
+// frontend/src/utils/errorHandler.ts
+export function setupErrorHandling() {
+  // 1. 全局同步错误
+  window.onerror = (message, source, lineno, colno, error) => {
+    toast.error(\`系统错误: \${message}\`)
+    return false
+  }
+
+  // 2. Promise未捕获错误
+  window.addEventListener('unhandledrejection', (event) => {
+    toast.error(\`异步错误: \${event.reason}\`)
+  })
+}
+\`\`\`
+
+#### 2. 账号合并服务设计
+
+\`\`\`python
+# backend/app/services/account_merge_service.py
+class AccountMergeService:
+    async def detect_duplicates(self) -> List[DuplicateGroup]:
+        """检测重复账号：按手机号和用户名分组"""
+
+    async def preview_merge(self, source_id: int, target_id: int) -> MergePreview:
+        """预览合并：显示将要迁移的数据"""
+
+    async def merge_accounts(self, source_id: int, target_id: int, strategy: str) -> MergeResult:
+        """执行合并：事务保护，迁移sessions和logs"""
+\`\`\`
+
+#### 3. Toast替换模式
+
+\`\`\`typescript
+// ❌ 错误
+alert('操作失败')
+
+// ✅ 正确
+import { useToast } from '@/composables/useToast'
+const toast = useToast()
+toast.error('操作失败')
+\`\`\`
+
+---
+
+### 关键文件清单
+
+#### 后端新增
+- `backend/app/services/account_merge_service.py` - 账号合并服务
+- `backend/app/utils/toast.py` - Toast工具（可选）
+
+#### 后端修改
+- `backend/app/api/accounts.py` - 添加合并API（注意路由顺序！）
+
+#### 前端新增
+- `frontend/src/utils/errorHandler.ts` - 全局错误处理器
+
+#### 前端修改
+- `frontend/src/main.ts` - 集成错误处理
+- `frontend/src/components/account/AccountManagementTab.vue` - 替换alert
+
+---
+
+### 测试验证清单
+
+- [ ] 后端服务启动无错误
+- [ ] `/api/accounts/duplicates` 端点可访问
+- [ ] 前端错误自动显示toast
+- [ ] 账号合并功能正常工作
+- [ ] 没有重复的路由定义
+
+---
+
+## 2026-03-06 BOSS账号自动同步功能实现
+
+### 需求背景
+
+**核心问题**：登录流程与账号管理系统割裂
+- 用户通过通用登录（`/api/auth/login`）登录新账号后，session只保存到`sessions`表（单例模式）
+- 账号管理系统（`accounts`表）不会自动更新
+- 导致登录的新账号无法出现在账号管理界面，无法切换使用
+
+**业务目标**：
+- 登录后自动同步到账号系统，无需手动创建
+- 所有登录过的账号集中管理，随时切换
+- 统一维护所有账号的会话和状态
+
+---
+
+### 架构设计原则
+
+#### 1. 模块化设计
+
+```
+登录流程（不破坏现有功能）
+    ↓
+RPAService._handle_login_success()
+    ↓
+[新增] AccountSyncService.sync_account_from_login()
+    ├─ identify_account() → 识别账号
+    ├─ create_or_update_account() → 更新accounts表
+    ├─ save_session_for_account() → 保存到account_sessions
+    └─ [保留] save_session() → 向后兼容sessions表
+    ↓
+前端收到 account_id，显示提示
+```
+
+#### 2. 核心设计原则
+- **单一职责**：AccountSyncService 只负责账号同步
+- **开闭原则**：不修改现有核心逻辑，只增加新模块
+- **依赖倒置**：RPAService 依赖抽象的同步接口
+- **防御性编程**：多层识别策略 + 降级方案
+- **幂等性**：多次登录同一账号不创建重复记录
+
+---
+
+### 实施步骤
+
+#### Phase 1: 数据库迁移（15分钟）
+
+**迁移文件**: `backend/migrations/012_add_account_sync_fields.sql`
+
+```sql
+-- 添加同步相关字段
+ALTER TABLE accounts ADD COLUMN auto_created BOOLEAN DEFAULT 0;
+ALTER TABLE accounts ADD COLUMN last_sync_at TIMESTAMP;
+ALTER TABLE accounts ADD COLUMN sync_source TEXT DEFAULT 'manual';
+-- sync_source 可选值: 'manual', 'auto_login', 'import', 'auto_migration'
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_accounts_auto_created ON accounts(auto_created);
+CREATE INDEX IF NOT EXISTS idx_accounts_sync_source ON accounts(sync_source);
+```
+
+**验证方法**：
+```bash
+# 迁移会在应用启动时自动执行
+# 验证字段
+sqlite3 data/boss_rpa.db "PRAGMA table_info(accounts)"
+```
+
+---
+
+#### Phase 2: 后端核心服务（45分钟）
+
+##### 2.1 创建账号同步服务
+
+**文件**: `backend/app/services/account_sync_service.py`（新建）
+
+**核心功能**：
+1. `identify_account(user_info)` - 识别账号
+   - 策略1：通过手机号匹配（优先级最高）
+   - 策略2：通过用户名匹配（次优先级）
+   - 策略3：返回None（新账号）
+
+2. `sync_account_from_login(cookies, user_info)` - 同步账号
+   - 调用 identify_account 判断是否已有账号
+   - 创建或更新 accounts 表
+   - 保存到 account_sessions 表
+   - 返回 SyncResult(account_id, is_new_account, message)
+
+**关键代码模式**：
+
+```python
+async def identify_account(self, user_info: dict) -> Optional[int]:
+    """识别账号 - 多策略组合"""
+    # 策略1：手机号匹配
+    phone = user_info.get("phone")
+    if phone:
+        cursor = await self.conn.execute(
+            "SELECT id FROM accounts WHERE phone = ?", (phone,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return row[0]
+
+    # 策略2：用户名匹配
+    username = user_info.get("username")
+    if username and username != "BOSS用户":  # 排除默认值
+        cursor = await self.conn.execute(
+            "SELECT id FROM accounts WHERE username = ?", (username,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return row[0]
+
+    return None  # 新账号
+```
+
+##### 2.2 修改 RPAService
+
+**文件**: `backend/app/services/rpa_service.py`
+
+**修改位置**: `_handle_login_success()` 方法
+
+**关键点**：
+- 使用 try-except 包裹同步逻辑，失败不影响登录
+- 保留原有的 save_session 调用（向后兼容）
+- 返回值增强，包含 account_id, is_new_account, sync_message
+
+```python
+async def _handle_login_success(self, browser) -> dict[str, Any]:
+    # Extract cookies and user_info
+    cookies = self.extract_cookies(browser)
+    user_info = self.extract_user_info(browser)
+
+    # ========== 新增：自动同步到账号系统 ==========
+    try:
+        sync_service = AccountSyncService(conn)
+        sync_result = await sync_service.sync_account_from_login(
+            cookies=cookies, user_info=user_info
+        )
+    except Exception as sync_error:
+        logger.error(f"Account sync failed: {sync_error}")
+        # 同步失败不影响登录
+        sync_result = {...}
+    # =============================================
+
+    # 保留原有的保存到 sessions 表（向后兼容）
+    await self.session_manager.save_session(cookies, user_info)
+
+    return {
+        "status": "success",
+        "user_info": user_info,
+        "account_id": sync_result.account_id,  # 新增
+        "is_new_account": sync_result.is_new_account,
+        "sync_message": sync_result.message
+    }
+```
+
+##### 2.3 增强 API 返回值
+
+**文件**: `backend/app/api/auth.py`
+
+**修改位置**: `monitor_and_broadcast_login()` 函数
+
+```python
+if result["status"] == "success":
+    status = await rpa_service.get_status()
+
+    # 增强返回数据
+    status["account_id"] = result.get("account_id")
+    status["is_new_account"] = result.get("is_new_account")
+    status["sync_message"] = result.get("sync_message")
+
+    await broadcast_status(status)
+```
+
+---
+
+#### Phase 3: 前端适配（30分钟）
+
+##### 3.1 处理登录成功消息
+
+**文件**: `frontend/src/composables/useWebSocket.ts`
+
+**关键修改**：
+```typescript
+case 'status_update':
+  const accountId = data.data?.account_id  // 新增
+  const isNewAccount = data.data?.is_new_account  // 新增
+  const syncMessage = data.data?.sync_message  // 新增
+
+  if (isLoggedIn && hasValidUserInfo) {
+    authStore.setAuth({
+      isAuthenticated: true,
+      user: userInfo,
+      accountId: accountId  // 新增
+    })
+
+    // 显示同步提示
+    if (syncMessage) {
+      console.log(`${isNewAccount ? '✓' : '↻'} ${syncMessage}`)
+    }
+
+    // 刷新账号列表
+    if (accountId) {
+      hrStore.loadAccounts()
+    }
+  }
+```
+
+##### 3.2 更新 authStore
+
+**文件**: `frontend/src/stores/auth.ts`
+
+**新增字段**：
+```typescript
+const accountId = ref<number | null>(null)  // 新增
+
+function setAuth(authData: { ..., accountId?: number | null }) {
+  accountId.value = isValidAuth ? (authData.accountId || null) : null
+
+  // 持久化
+  localStorage.setItem('auth', JSON.stringify({
+    isAuthenticated: true,
+    user: authData.user,
+    accountId: authData.accountId  // 新增
+  }))
+}
+```
+
+---
+
+### 避免的错误模式
+
+#### 错误1：同步失败导致登录失败
+
+**错误模式**：
+```python
+# ❌ 错误 - 同步失败会阻止登录
+sync_result = await sync_service.sync_account_from_login(cookies, user_info)
+if not sync_result.account_id:
+    raise Exception("Sync failed")
+```
+
+**正确模式**：
+```python
+# ✅ 正确 - 同步失败不影响登录
+try:
+    sync_result = await sync_service.sync_account_from_login(cookies, user_info)
+except Exception as sync_error:
+    logger.error(f"Account sync failed: {sync_error}")
+    sync_result = {"account_id": None, "is_new_account": False, "message": "同步失败"}
+```
+
+---
+
+#### 错误2：缺少向后兼容
+
+**错误模式**：
+```python
+# ❌ 错误 - 移除了原有逻辑
+# await self.session_manager.save_session(cookies, user_info)  # 删除了！
+```
+
+**正确模式**：
+```python
+# ✅ 正确 - 保留原有逻辑
+await self.session_manager.save_session(cookies, user_info)  # 向后兼容
+```
+
+---
+
+#### 错误3：账号重复创建
+
+**错误模式**：
+```python
+# ❌ 错误 - 不检查是否已有账号
+account_id = await create_account(user_info)
+```
+
+**正确模式**：
+```python
+# ✅ 正确 - 先识别再创建
+account_id = await self.identify_account(user_info)
+if not account_id:
+    account_id = await self._create_auto_account(user_info, cookies)
+```
+
+---
+
+#### 错误4：前端未刷新账号列表
+
+**错误模式**：
+```typescript
+// ❌ 错误 - 登录成功后不刷新列表
+authStore.setAuth({ isAuthenticated: true, user: userInfo })
+```
+
+**正确模式**：
+```typescript
+// ✅ 正确 - 登录成功后刷新账号列表
+authStore.setAuth({ isAuthenticated: true, user: userInfo, accountId })
+if (accountId) {
+  hrStore.loadAccounts()  // 刷新账号列表
+}
+```
+
+---
+
+### 边界情况处理
+
+#### 1. user_info 不完整
+
+**场景**：提取不到用户名或手机号
+
+**处理**：
+- 使用默认用户名 "BOSS用户"
+- 标记为 `auto_created=1`
+- 记录警告日志
+- 不影响登录流程
+
+```python
+if not user_info or not user_info.get("username"):
+    user_info = {"username": "BOSS用户", "source": "default", "auto_created": True}
+    logger.warning("Using default user info due to missing data")
+```
+
+---
+
+#### 2. 手机号冲突
+
+**场景**：user_info 中没有手机号，但需要创建账号
+
+**处理**：
+- 生成临时手机号避免冲突
+- 格式：`auto_{timestamp}`
+
+```python
+phone = user_info.get("phone")
+if not phone:
+    import time
+    timestamp = int(time.time() * 1000)
+    phone = f"auto_{timestamp}"
+```
+
+---
+
+#### 3. 用户名是默认值
+
+**场景**：提取到的用户名是 "BOSS用户"（默认值）
+
+**处理**：
+- 识别账号时排除默认值
+- 避免将所有默认用户名的账号识别为同一账号
+
+```python
+username = user_info.get("username")
+if username and username != "BOSS用户":  # 排除默认值
+    # 尝试匹配
+```
+
+---
+
+### 数据库字段说明
+
+#### accounts 表新增字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `auto_created` | BOOLEAN | 0 | 是否为自动创建的账号 |
+| `last_sync_at` | TIMESTAMP | NULL | 最后同步时间 |
+| `sync_source` | TEXT | 'manual' | 同步来源 |
+
+**sync_source 可选值**：
+- `manual` - 手动创建
+- `auto_login` - 登录自动同步
+- `import` - 批量导入
+- `auto_migration` - 迁移脚本创建
+
+---
+
+### 测试验证清单
+
+#### 后端测试
+- [ ] 迁移文件执行成功
+- [ ] accounts 表新增字段存在
+- [ ] 登录成功后 accounts 表有新记录
+- [ ] account_sessions 表有对应记录
+- [ ] sessions 表仍然正常工作（向后兼容）
+- [ ] 重复登录同一账号不会创建重复记录
+
+#### 前端测试
+- [ ] 登录成功后显示同步提示
+- [ ] 账号管理界面出现新账号
+- [ ] 账号列表自动刷新
+- [ ] localStorage 包含 accountId
+- [ ] 刷新页面后状态恢复
+
+#### 集成测试
+- [ ] 首次登录新账号 → 自动创建
+- [ ] 已有账号重新登录 → 更新状态
+- [ ] 账号切换功能正常
+- [ ] Cookie 状态正确显示
+
+---
+
+### 关键文件清单
+
+#### 后端新增文件
+- `backend/migrations/012_add_account_sync_fields.sql` - 数据库迁移
+- `backend/app/services/account_sync_service.py` - 账号同步服务
+
+#### 后端修改文件
+- `backend/app/services/rpa_service.py` - 修改 `_handle_login_success()` 方法
+- `backend/app/api/auth.py` - 增强 WebSocket 返回值
+
+#### 前端修改文件
+- `frontend/src/composables/useWebSocket.ts` - 处理同步消息
+- `frontend/src/stores/auth.ts` - 添加 accountId 字段
+
+---
+
+### 预期成果
+
+#### 功能成果
+1. ✅ 登录新账号后自动同步到账号管理系统
+2. ✅ 账号管理界面实时显示所有登录过的账号
+3. ✅ 前端显示友好的同步提示
+4. ✅ 支持账号无缝切换
+
+#### 架构成果
+1. ✅ 模块化设计，易于维护和扩展
+2. ✅ 防御性编程，处理各种边界情况
+3. ✅ 向后兼容，不破坏现有功能
+4. ✅ 完整的测试覆盖
+
+#### 数据完整性
+1. ✅ 统一维护 `sessions`、`accounts`、`account_sessions` 三张表
+2. ✅ 自动标记同步来源和时间
+3. ✅ 支持后续的账号合并和清理
+
+---
+
+## 2026-03-06 Vue 组件开发常见错误预防
+
+### 错误1: 使用未定义的变量
+
+**错误现象**:
+```
+ReferenceError: currentAccountId is not defined
+```
+
+**错误模式**:
+```typescript
+// ❌ 错误 - currentAccountId 从未定义
+toast.success(currentAccountId.value ? '账号已更新' : '账号已创建')
+```
+
+**正确模式**:
+```typescript
+// ✅ 正确 - 使用已定义的 editingAccount
+const editingAccount = ref<any>(null)
+toast.success(editingAccount.value ? '账号已更新' : '账号已创建')
+```
+
+**预防措施**:
+1. **使用 TypeScript 严格模式** - 会检测未定义变量
+   ```typescript
+   // tsconfig.json
+   {
+     "compilerOptions": {
+       "strict": true,
+       "noImplicitAny": true
+     }
+   }
+   ```
+
+2. **在定义 ref 时立即初始化**
+   ```typescript
+   // ✅ 立即初始化
+   const editingAccount = ref<any>(null)
+   const accountFormVisible = ref(false)
+   ```
+
+3. **使用变量前先搜索确认**
+   - IDE 快捷键: Ctrl+F / Cmd+F
+   - 确认变量已在文件顶部定义
+
+4. **IDE 配置**
+   - 启用 "拼写检查"
+   - 启用 "未定义变量" 警告
+   - 使用 ESLint 规则: `no-undef`
+
+---
+
+### 错误2: 组件导入但未在模板中使用
+
+**错误现象**:
+```
+点击"添加账号"按钮无反应
+Vue DevTools 中看不到组件实例
+```
+
+**错误模式**:
+```vue
+<script setup>
+// ❌ 错误 - 只导入了组件，状态和方法都准备好了
+import AccountFormDialog from './AccountFormDialog.vue'
+
+const accountFormVisible = ref(false)
+const editingAccount = ref<any>(null)
+const accountFormLoading = ref(false)
+
+function openAddDialog() {
+  editingAccount.value = null
+  accountFormVisible.value = true  // 设置为 true，但组件不会显示
+}
+
+function handleSaveAccount(data: any) {
+  // 保存逻辑...
+}
+</script>
+
+<template>
+  <div>
+    <button @click="openAddDialog">添加账号</button>
+    <!-- ❌ 错误 - 模板中完全没有使用组件 -->
+  </div>
+</template>
+```
+
+**正确模式**:
+```vue
+<script setup>
+// ✅ 正确 - 三要素齐全
+import AccountFormDialog from './AccountFormDialog.vue'
+
+const accountFormVisible = ref(false)
+const editingAccount = ref<any>(null)
+const accountFormLoading = ref(false)
+
+function openAddDialog() {
+  editingAccount.value = null
+  accountFormVisible.value = true
+}
+
+function handleSaveAccount(data: any) {
+  // 保存逻辑...
+}
+</script>
+
+<template>
+  <div>
+    <button @click="openAddDialog">添加账号</button>
+
+    <!-- ✅ 正确 - 在模板中使用组件 -->
+    <AccountFormDialog
+      v-model:visible="accountFormVisible"
+      :account="editingAccount"
+      :loading="accountFormLoading"
+      @save="handleSaveAccount"
+    />
+  </div>
+</template>
+```
+
+**预防措施**:
+1. **组件三要素检查清单**:
+   - [ ] 导入组件 (`import Xxx from ...`)
+   - [ ] 定义状态 (`const xxxVisible = ref(false)`)
+   - [ ] 模板中使用 (`<Xxx v-model:visible="xxxVisible" />`)
+
+2. **添加组件时的正确顺序**:
+   ```bash
+   # 第1步: 导入组件
+   import AccountFormDialog from './AccountFormDialog.vue'
+
+   # 第2步: 立即在模板中添加组件
+   <AccountFormDialog v-model:visible="accountFormVisible" />
+
+   # 第3步: 定义状态变量
+   const accountFormVisible = ref(false)
+
+   # 第4步: 实现事件处理函数
+   function handleSave() { ... }
+
+   # 第5步: 绑定 props 和 events
+   <AccountFormDialog
+     v-model:visible="accountFormVisible"
+     @save="handleSave"
+   />
+   ```
+
+3. **使用 Vue DevTools 检查**
+   - 打开 Vue DevTools
+   - 查看组件树
+   - 确认组件是否实际渲染
+
+4. **编写组件时立即使用**
+   - ❌ 不要: 先导入，后使用
+   - ✅ 应该: 导入后立即在模板中声明
+
+---
+
+### 错误3: 后端API已实现但前端无入口
+
+**错误现象**:
+```
+后端 API 文档中有 /api/accounts/duplicates
+但前端界面找不到"检测重复"按钮
+```
+
+**错误模式**:
+```python
+# ❌ 后端已有 API
+@router.get("/duplicates")
+async def detect_duplicates(): ...
+```
+
+```vue
+<!-- ❌ 前端完全没有入口 -->
+<template>
+  <button>添加账号</button>
+  <!-- 没有"检测重复"按钮 -->
+</template>
+
+<script setup>
+// ❌ 没有调用 API 的函数
+</script>
+```
+
+**正确模式**:
+```vue
+<template>
+  <button @click="handleDetectDuplicates">检测重复</button>
+</template>
+
+<script setup>
+async function handleDetectDuplicates() {
+  const response = await fetch('/api/accounts/duplicates')
+  const result = await response.json()
+  // 处理结果...
+}
+</script>
+```
+
+**预防措施**:
+1. **API-UI 同步检查**: 添加新 API 时，同步添加前端入口
+   ```bash
+   # 新增 API 后的检查清单
+   - [ ] 后端 API 实现
+   - [ ] 前端按钮/链接
+   - [ ] 前端调用函数
+   - [ ] 状态管理
+   - [ ] 错误处理
+   ```
+
+2. **使用 API 文档验证**:
+   - Swagger UI (`/docs`) 列出所有 API
+   - 逐一检查前端是否有对应入口
+   - 标记已实现和未实现的 API
+
+3. **定期代码审查**:
+   ```bash
+   # 每周检查
+   - 未使用的前端组件
+   - 未调用的后端 API
+   - 功能完整度对比
+   ```
+
+4. **前后端同步开发**:
+   - API 设计文档 → 后端实现 → 前端入口
+   - 使用 OpenAPI 规范
+   - 自动生成前端 API 客户端
+
+---
+
+### 检查清单：Vue 组件开发
+
+#### 开发新组件时
+
+- [ ] **组件文件**: 创建 `.vue` 文件
+- [ ] **Props 定义**: 使用 TypeScript 接口
+- [ ] **Emits 定义**: 明确事件类型
+- [ ] **状态管理**: 使用 `ref` / `reactive`
+- [ ] **模板实现**: 组件 HTML 结构
+- [ ] **样式实现**: CSS / Tailwind
+- [ ] **导入组件**: 在父组件中导入
+- [ ] **使用组件**: 在父组件模板中声明
+- [ ] **绑定事件**: 处理组件交互
+
+#### 修改现有组件时
+
+- [ ] **搜索变量**: 确认变量已定义
+- [ ] **检查类型**: TypeScript 类型正确
+- [ ] **测试功能**: 手动测试所有修改点
+- [ ] **检查其他文件**: 是否有类似问题需要修复
+
+---
+
+### 快速修复指南
+
+#### 运行时错误: `ReferenceError: xxx is not defined`
+
+1. 定位错误行号
+2. 搜索变量名在文件中是否定义
+3. 如果未定义，添加定义或使用正确的变量名
+4. 如果已定义，检查拼写是否一致
+
+#### 组件不显示问题
+
+1. 检查组件是否导入
+2. 检查 `v-if` / `v-show` 条件
+3. 检查 `visible` prop 是否为 `true`
+4. 使用 Vue DevTools 查看组件树
+
+#### API 调用无响应
+
+1. 检查后端服务是否运行
+2. 检查 API 路径是否正确
+3. 检查前端是否有入口按钮
+4. 检查网络请求是否发送
+3. ✅ 支持后续的账号合并和清理
+
+---
+
+## 2026-03-06 账号登录功能重构与浏览器会话恢复
+
+### 需求背景
+
+将 BOSS 网页登录功能从主页移到账号管理页面，每个账号卡片都有独立的登录按钮，并支持浏览器会话恢复。
+
+### 实现的功能
+
+1. **账号管理页面登录**：每个账号卡片上有登录按钮
+2. **浏览器会话恢复**：当 cookie 有效但浏览器未运行时，可恢复会话
+3. **账号状态同步**：登录成功后自动刷新账号列表
+
+### 新增的 API 端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/auth/accounts/{account_id}/restore-browser` | POST | 为指定账号恢复浏览器会话 |
+
+### 修改的文件
+
+| 文件 | 修改内容 |
+|------|----------|
+| `backend/app/api/auth.py` | 添加账号浏览器恢复 API |
+| `backend/app/services/rpa_service.py` | 添加 `restore_browser_session_for_account()` 方法 |
+| `frontend/src/components/account/AccountCard.vue` | 添加"恢复会话"按钮和相关 props |
+| `frontend/src/components/account/AccountList.vue` | 透传新的 props 和 events |
+| `frontend/src/components/account/AccountManagementTab.vue` | 添加浏览器状态追踪和恢复处理 |
+
+---
+
+### 关键错误1：DrissionPage Cookie API 使用错误
+
+#### 错误现象
+
+```
+'ChromiumPageSetter' object has no attribute 'cookie'
+```
+
+#### 根本原因
+
+DrissionPage 4.x 中设置 cookie 的 API 不是 `browser.set.cookie()`，而是 `browser.cookies(cookies_list)` 批量设置。
+
+#### ❌ 错误模式
+
+```python
+# 错误 - 逐个设置 cookie
+for cookie_dict in cookies:
+    browser.set.cookie(
+        name=cookie_dict.get("name"),
+        value=cookie_dict.get("value"),
+        domain=cookie_dict.get("domain"),
+    )
+```
+
+#### ✅ 正确模式
+
+```python
+# 正确 - 批量设置 cookies
+browser.cookies(cookies)  # cookies 是一个列表
+```
+
+#### 防错措施
+
+1. **查看现有实现**：在编写新代码前，先搜索项目中已有的类似实现
+2. **参考 browser_restorer.py**：这个文件已经正确实现了 cookie 注入
+3. **单元测试**：添加 cookie 相关的单元测试
+
+---
+
+### 关键错误2：多进程占用同一端口
+
+#### 错误现象
+
+- 修改代码后 API 仍然返回旧结果
+- OpenAPI 文档中没有新添加的路由
+- uvicorn 热重载不生效
+
+#### 根本原因
+
+多个 uvicorn 进程同时监听同一端口（8000），旧进程响应请求。
+
+#### 排查方法
+
+```bash
+# 检查端口占用
+netstat -ano | findstr ":8000"
+
+# 如果有多个 LISTENING 进程，说明有问题
+```
+
+#### 解决方案
+
+```bash
+# Windows: 杀掉所有占用端口的进程
+for /f "tokens=5" %a in ('netstat -ano ^| findstr ":8000"') do taskkill /F /PID %a
+
+# 然后重新启动服务
+cd backend && uv run uvicorn app.main:app --reload --port 8000
+```
+
+#### 防错措施
+
+1. **启动前检查端口**：启动服务前先检查端口是否被占用
+2. **使用 PID 文件**：记录服务进程 ID，避免重复启动
+3. **优雅关闭**：使用 Ctrl+C 关闭服务，而不是直接关闭终端
+
+---
+
+### 关键错误3：前端组件 Props 透传遗漏
+
+#### 错误现象
+
+新添加的按钮不显示或点击无反应。
+
+#### 根本原因
+
+在多层组件结构中，中间组件没有透传新的 props 和 events。
+
+#### 组件层级
+
+```
+AccountManagementTab.vue
+  └─ AccountList.vue (需要透传)
+      └─ AccountCard.vue (实际使用)
+```
+
+#### 检查清单
+
+- [ ] AccountCard.vue: 定义了新的 props 和 emits
+- [ ] AccountList.vue: 接收 props 并透传给 AccountCard
+- [ ] AccountList.vue: 定义了新的 emit 并透传事件
+- [ ] AccountManagementTab.vue: 传递 props 并监听事件
+
+#### 透传模式
+
+```vue
+<!-- AccountList.vue -->
+<template>
+  <AccountCard
+    :browser-running="browserStatus?.[account.id]"
+    :is-restoring-browser="restoringAccountId === account.id"
+    @restore-browser="$emit('restore-browser', $event)"
+  />
+</template>
+
+<script setup>
+defineProps<{
+  browserStatus?: Record<number, boolean>
+  restoringAccountId?: number | null
+}>()
+
+defineEmits<{
+  'restore-browser': [accountId: number]
+}>()
+</script>
+```
+
+---
+
+### 架构设计原则
+
+#### 1. 账号登录流程
+
+```
+用户点击账号卡片"登录"按钮
+    ↓
+AccountCard emit('login', accountId)
+    ↓
+AccountManagementTab.handleLogin(accountId)
+    ↓
+useAccountLogin.loginAccount(accountId)
+    ↓
+POST /api/auth/login/account { account_id }
+    ↓
+RPAService.start_login_for_account(accountId)
+    ├─ 启动浏览器
+    ├─ 导航到登录页
+    └─ 启动后台监控任务
+    ↓
+登录成功 → save_session_for_account(accountId, cookies, user_info)
+    ↓
+WebSocket 广播 account_login_success
+    ↓
+前端更新状态和账号列表
+```
+
+#### 2. 浏览器会话恢复流程
+
+```
+用户点击"恢复会话"按钮
+    ↓
+AccountCard emit('restore-browser', accountId)
+    ↓
+AccountManagementTab.handleRestoreBrowser(accountId)
+    ↓
+POST /api/auth/accounts/{accountId}/restore-browser
+    ↓
+RPAService.restore_browser_session_for_account(accountId)
+    ├─ 验证账号存在
+    ├─ 加载账号 session
+    ├─ 关闭现有浏览器（如有）
+    ├─ 启动新浏览器
+    ├─ 注入反检测脚本
+    ├─ 注入 cookies（批量设置）
+    ├─ 导航到 BOSS 首页
+    ├─ 设置为活跃账号
+    └─ 更新最后使用时间
+    ↓
+返回恢复结果
+```
+
+---
+
+### 测试验证清单
+
+#### 账号登录功能
+
+- [ ] 主页未登录状态显示"前往账号管理"按钮
+- [ ] 账号管理页面显示所有账号
+- [ ] 每个账号卡片有登录按钮
+- [ ] 点击登录按钮打开浏览器
+- [ ] 扫码登录成功后 session 保存正确
+- [ ] cookie_status 更新为 'valid'
+- [ ] 账号列表自动刷新
+
+#### 浏览器会话恢复功能
+
+- [ ] cookie 有效但浏览器未运行时显示"恢复会话"按钮
+- [ ] 点击恢复按钮后浏览器打开
+- [ ] 恢复后自动登录到 BOSS
+- [ ] 恢复后账号状态正确
+
+#### 错误处理
+
+- [ ] 账号不存在时显示友好提示
+- [ ] session 无效时显示友好提示
+- [ ] 网络错误时显示友好提示
+

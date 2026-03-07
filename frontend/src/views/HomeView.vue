@@ -1,42 +1,36 @@
 <template>
   <div class="space-y-6">
-    <!-- 未登录状态 - 启动区域 -->
+    <!-- 未登录状态 - 引导区域 -->
     <div v-if="!isAuthenticated" class="login-section">
       <GlassCard class="p-8 text-center">
         <h2 class="text-2xl font-bold mb-4 text-text-primary">欢迎使用 BOSS 直聘助手</h2>
-        <p class="text-text-secondary mb-6">点击下方按钮启动 BOSS 网页并扫码登录</p>
+        <p class="text-text-secondary mb-6">请前往账号管理页面选择账号进行登录</p>
 
         <button
-          @click="handleLaunchBrowser"
-          :disabled="isLaunching"
-          class="launch-button"
+          @click="goToAccountManagement"
+          class="px-6 py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary-dark transition-colors"
         >
-          <span v-if="!isLaunching">启动 BOSS 网页</span>
-          <span v-else>正在启动...</span>
+          前往账号管理
         </button>
 
-        <!-- 错误提示 -->
-        <div v-if="launchError" class="mt-4 text-red-500 text-sm">
-          {{ launchError }}
-        </div>
-
-        <!-- 登录引导 -->
-        <div v-if="browserOpened" class="login-guide mt-8">
-          <div class="countdown text-4xl font-bold text-primary mb-4">{{ formatCountdown(countdown) }}</div>
-          <p class="text-text-secondary mb-6">请使用 BOSS 直聘 APP 扫码登录</p>
-          <div class="steps text-left max-w-sm mx-auto space-y-3">
-            <div class="step flex items-center gap-3">
-              <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">1</span>
-              <span>打开 BOSS 直聘 APP</span>
-            </div>
-            <div class="step flex items-center gap-3">
-              <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">2</span>
-              <span>点击右上角扫码图标</span>
-            </div>
-            <div class="step flex items-center gap-3">
-              <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">3</span>
-              <span>扫描网页二维码完成登录</span>
-            </div>
+        <!-- 使用说明 -->
+        <div class="mt-8 text-left max-w-sm mx-auto space-y-3">
+          <p class="font-medium text-text-primary">使用步骤：</p>
+          <div class="step flex items-center gap-3">
+            <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">1</span>
+            <span>点击"前往账号管理"</span>
+          </div>
+          <div class="step flex items-center gap-3">
+            <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">2</span>
+            <span>选择或创建一个账号</span>
+          </div>
+          <div class="step flex items-center gap-3">
+            <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">3</span>
+            <span>点击账号卡片上的"登录"按钮</span>
+          </div>
+          <div class="step flex items-center gap-3">
+            <span class="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-medium">4</span>
+            <span>使用 BOSS 直聘 APP 扫码登录</span>
           </div>
         </div>
       </GlassCard>
@@ -267,7 +261,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import GlassCard from '@/components/ui/GlassCard.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -280,21 +275,18 @@ import 'dayjs/locale/zh-cn'
 
 dayjs.locale('zh-cn')
 
+const router = useRouter()
 const authStore = useAuthStore()
 const hrStore = useHRStore()
 const rpaStore = useRPAStore()
 const { connected } = useWebSocket()
 
-// 使用浏览器启动 composable
-const { isLaunching, browserOpened, error: launchError, launch: launchBrowser } = useBrowserLaunch()
+// 使用浏览器启动 composable（保留用于恢复功能）
+const { browserOpened } = useBrowserLaunch()
 
 // 浏览器状态
 const browserRunning = ref(false)
 const isRestoring = ref(false)
-
-// 倒计时相关
-const countdown = ref(300) // 5分钟
-let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 // Statistics
 const stats = ref({
@@ -401,50 +393,17 @@ async function handleRestoreBrowser() {
 // Computed
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
-// 启动浏览器处理
-async function handleLaunchBrowser() {
-  await launchBrowser()
-  if (browserOpened.value) {
-    startCountdown()
-  }
-}
-
-// 倒计时功能
-function startCountdown() {
-  stopCountdown() // 清除可能存在的旧定时器
-  countdown.value = 300 // 重置为5分钟
-  countdownTimer = setInterval(() => {
-    countdown.value--
-    if (countdown.value <= 0) {
-      stopCountdown()
-    }
-  }, 1000)
-}
-
-function stopCountdown() {
-  if (countdownTimer) {
-    clearInterval(countdownTimer)
-    countdownTimer = null
-  }
-}
-
-function formatCountdown(seconds: number) {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
+// 前往账号管理页面
+function goToAccountManagement() {
+  router.push('/system-settings?tab=accounts')
 }
 
 // 监听登录成功状态变化
 watch(() => authStore.isAuthenticated, (newValue) => {
+  // 登录状态变化时更新浏览器状态
   if (newValue) {
-    // 登录成功后停止倒计时
-    stopCountdown()
+    browserRunning.value = browserOpened.value
   }
-})
-
-// 清理
-onUnmounted(() => {
-  stopCountdown()
 })
 </script>
 

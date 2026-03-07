@@ -7,11 +7,21 @@ export {}
 
 declare module 'vue' {
   export interface GlobalComponents {
-    AccountCard: typeof import('./../components/business/AccountCard.vue')['default']
+    AccountCard: typeof import('./../components/account/AccountCard.vue')['default']
+    AccountDetailDrawer: typeof import('./../components/account/AccountDetailDrawer.vue')['default']
+    AccountFormDialog: typeof import('./../components/account/AccountFormDialog.vue')['default']
+    AccountGroupDialog: typeof import('./../components/account/AccountGroupDialog.vue')['default']
+    AccountGroupTree: typeof import('./../components/account/AccountGroupTree.vue')['default']
+    AccountList: typeof import('./../components/account/AccountList.vue')['default']
+    AccountManagementTab: typeof import('./../components/account/AccountManagementTab.vue')['default']
+    AccountMergeDialog: typeof import('./../components/account/AccountMergeDialog.vue')['default']
+    AccountStatistics: typeof import('./../components/account/AccountStatistics.vue')['default']
     AccountSwitcher: typeof import('./../components/business/AccountSwitcher.vue')['default']
+    AccountToolbar: typeof import('./../components/account/AccountToolbar.vue')['default']
     AddAccountDialog: typeof import('./../components/business/AddAccountDialog.vue')['default']
     AppHeader: typeof import('./../components/layout/AppHeader.vue')['default']
     AuthenticatedPage: typeof import('./../components/AuthenticatedPage.vue')['default']
+    BatchOperationDialog: typeof import('./../components/account/BatchOperationDialog.vue')['default']
     Button: typeof import('./../components/ui/Button.vue')['default']
     CandidateList: typeof import('./../components/business/CandidateList.vue')['default']
     CandidateSearch: typeof import('./../components/business/CandidateSearch.vue')['default']

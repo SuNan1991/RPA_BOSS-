@@ -29,63 +29,7 @@
     <div class="mt-6">
       <!-- Accounts Tab -->
       <div v-if="activeTab === 'accounts'" class="space-y-4">
-        <GlassCard class="p-6">
-          <div class="flex items-center justify-between mb-6">
-            <h2 class="text-lg font-semibold">账户管理</h2>
-            <AddAccountDialog ref="addDialogRef" @success="handleAccountAdded" />
-          </div>
-
-          <!-- Accounts List -->
-          <div class="space-y-3">
-            <div
-              v-for="account in hrStore.hrAccounts"
-              :key="account.id"
-              :class="[
-                'flex items-center justify-between p-4 rounded-lg border transition-colors',
-                hrStore.activeAccountId === account.id
-                  ? 'border-primary bg-primary/5 dark:bg-primary/10'
-                  : 'border-gray-200 dark:border-gray-700'
-              ]"
-            >
-              <div class="flex items-center gap-4">
-                <div class="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-white font-semibold">
-                  {{ account.username?.charAt(0)?.toUpperCase() || '?' }}
-                </div>
-                <div>
-                  <p class="font-medium">{{ account.username || `账户 ${account.id}` }}</p>
-                  <p class="text-sm text-text-secondary">{{ account.phone || '未设置手机号' }}</p>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-3">
-                <StatusIndicator
-                  :status="account.cookie_status === 'valid' ? 'connected' : 'disconnected'"
-                  :show-label="true"
-                />
-                <div class="flex gap-2">
-                  <button
-                    v-if="hrStore.activeAccountId !== account.id"
-                    @click="switchAccount(account.id)"
-                    class="px-3 py-1.5 text-sm rounded-lg bg-primary text-white hover:bg-primary-dark transition-colors"
-                  >
-                    切换
-                  </button>
-                  <button
-                    @click="refreshCookie(account.id)"
-                    :disabled="refreshing"
-                    class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-                  >
-                    {{ refreshing ? '刷新中...' : '刷新' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="hrStore.hrAccounts.length === 0" class="text-center py-8 text-text-secondary">
-              <p>暂无账户，请添加账户开始使用</p>
-            </div>
-          </div>
-        </GlassCard>
+        <AccountManagementTab />
       </div>
 
       <!-- General Tab -->
@@ -186,15 +130,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed } from 'vue'
 import GlassCard from '@/components/ui/GlassCard.vue'
-import StatusIndicator from '@/components/ui/StatusIndicator.vue'
-import AddAccountDialog from '@/components/business/AddAccountDialog.vue'
+import AccountManagementTab from '@/components/account/AccountManagementTab.vue'
 import LogViewer from '@/components/LogViewer.vue'
-import { useHRStore } from '@/stores/hr'
 import { useTheme } from '@/composables/useTheme'
 
-const hrStore = useHRStore()
 const { mode, toggleTheme } = useTheme()
 
 const isDark = computed(() => mode === 'dark')
@@ -214,40 +155,8 @@ const settings = ref({
   soundEnabled: false,
 })
 
-// State
-const refreshing = ref(false)
-const addDialogRef = ref<InstanceType<typeof AddAccountDialog> | null>(null)
-
 // Methods
-async function switchAccount(accountId: number) {
-  await hrStore.switchAccount(accountId)
-}
-
-async function refreshCookie(accountId: number) {
-  refreshing.value = true
-  try {
-    // Call refresh API
-    const response = await fetch(`/api/accounts/${accountId}/refresh-cookie`, {
-      method: 'POST',
-    })
-    if (response.ok) {
-      await hrStore.loadAccounts()
-    }
-  } finally {
-    refreshing.value = false
-  }
-}
-
-function handleAccountAdded() {
-  hrStore.loadAccounts()
-}
-
 async function loadLogs() {
   // LogViewer has its own refresh logic
 }
-
-// Load data on mount
-onMounted(() => {
-  hrStore.loadAccounts()
-})
 </script>

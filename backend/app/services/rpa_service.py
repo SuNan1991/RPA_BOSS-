@@ -141,7 +141,31 @@ class RPAService:
             # Extract user info
             user_info = self.extract_user_info(browser)
 
-            # Save session
+            # ========== 新增：自动同步到账号系统 ==========
+            from app.services.account_sync_service import AccountSyncService
+            from app.core.database import db
+
+            try:
+                conn = await db.get_connection()
+                sync_service = AccountSyncService(conn)
+                sync_result = await sync_service.sync_account_from_login(
+                    cookies=cookies,
+                    user_info=user_info
+                )
+
+                logger.info(f"[Account Sync] Result: {sync_result.message} (ID: {sync_result.account_id})")
+
+            except Exception as sync_error:
+                logger.error(f"[Account Sync] Failed: {sync_error}", exc_info=True)
+                # 同步失败不影响登录，使用默认值
+                sync_result = {
+                    "account_id": None,
+                    "is_new_account": False,
+                    "message": "同步失败，但登录成功"
+                }
+            # =============================================
+
+            # 保留原有的保存到 sessions 表（向后兼容）
             await self.session_manager.save_session(cookies, user_info)
 
             # Log successful login
@@ -153,7 +177,16 @@ class RPAService:
             self._login_in_progress = False
 
             logger.info("Login successful, browser kept open for user operations")
-            return {"status": "success", "message": "Login successful", "user_info": user_info}
+
+            # 返回增强的结果，包含 account_id
+            return {
+                "status": "success",
+                "message": "Login successful",
+                "user_info": user_info,
+                "account_id": sync_result.account_id,
+                "is_new_account": sync_result.is_new_account,
+                "sync_message": sync_result.message
+            }
 
         except Exception as e:
             logger.error(f"Error handling login success: {e}")
@@ -793,3 +826,89 @@ class RPAService:
     def get_now_iso() -> str:
         """获取当前时间的 ISO 格式字符串"""
         return datetime.now().isoformat()
+
+    async def restore_browser_session_for_account(self, account_id: int) -> dict[str, Any]:
+        """
+        为指定账号恢复浏览器会话
+
+        Args:
+            account_id: 账户ID
+
+        Returns:
+            dict: 恢复结果
+        """
+        try:
+            # 1. 验证账号存在
+            from app.core.database import db
+            from app.services.account_service import AccountService
+
+            conn = await db.get_connection()
+            account_service = AccountService(conn)
+            account = await account_service.get_by_id(account_id)
+
+            if not account:
+                return {
+                    "status": "error",
+                    "message": f"Account {account_id} not found",
+                    "browser_opened": False
+                }
+
+            # 2. 加载该账号的session
+            session = await self.session_manager.load_session_for_account(account_id)
+
+            if not session or not session.get("cookies"):
+                return {
+                    "status": "error",
+                    "message": f"No valid session found for account {account_id}",
+                    "browser_opened": False
+                }
+
+            # 3. 检查浏览器是否已运行
+            if self.browser_manager.is_browser_running():
+                # 如果浏览器已运行，先关闭
+                logger.info(f"Closing existing browser before restoring for account {account_id}")
+                self.browser_manager.close_browser()
+                await asyncio.sleep(1)  # 等待浏览器完全关闭
+
+            # 4. 启动浏览器
+            browser = self.browser_manager.start_browser()
+
+            # 5. 注入反检测脚本
+            from rpa.modules.anti_detection import AntiDetection
+            AntiDetection.inject_anti_detection_scripts(browser)
+
+            # 6. 注入cookies (DrissionPage 4.x 使用 browser.cookies() 批量设置)
+            cookies = session["cookies"]
+            try:
+                browser.cookies(cookies)
+                logger.info(f"Cookies injected for account {account_id}")
+            except Exception as e:
+                logger.warning(f"Failed to inject some cookies: {e}")
+
+            # 7. 导航到BOSS首页
+            browser.get("https://www.zhipin.com")
+            await asyncio.sleep(2)
+
+            # 8. 设置该账号为活跃账号
+            await self.session_manager.set_active_account(account_id)
+
+            # 9. 更新最后使用时间
+            await account_service.update_last_operation(account_id)
+
+            logger.info(f"Browser session restored for account {account_id}")
+
+            return {
+                "status": "success",
+                "message": f"Browser session restored for account {account_id}",
+                "browser_opened": True,
+                "account_id": account_id,
+                "user_info": session.get("user_info")
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to restore browser for account {account_id}: {e}")
+            return {
+                "status": "error",
+                "message": str(e),
+                "browser_opened": False
+            }

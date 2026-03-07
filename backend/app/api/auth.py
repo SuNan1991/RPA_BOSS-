@@ -156,7 +156,7 @@ class AccountLoginRequest(BaseModel):
 
 
 @router.post("/login/account")
-async def login_account(request: AccountLoginRequest):
+async def login_account(request: AccountLoginRequest, background_tasks: BackgroundTasks):
     """Start RPA login process for a specific account"""
     try:
         # Check if Chrome is installed
@@ -191,6 +191,11 @@ async def login_account(request: AccountLoginRequest):
 
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=result["message"])
+
+        # 启动后台监控任务，不阻塞响应
+        if result["status"] == "browser_opened":
+            background_tasks.add_task(monitor_and_broadcast_account_login, request.account_id)
+            logger.info(f"Background account login monitoring task started for account {request.account_id}")
 
         return result
 
@@ -240,6 +245,24 @@ async def switch_account(account_id: int):
         raise
     except Exception as e:
         logger.error(f"Error switching account: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/accounts/{account_id}/restore-browser")
+async def restore_browser_for_account(account_id: int):
+    """为指定账号恢复浏览器会话"""
+    try:
+        result = await rpa_service.restore_browser_session_for_account(account_id)
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=400, detail=result["message"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring browser for account {account_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -360,6 +383,16 @@ async def monitor_and_broadcast_login():
         if result["status"] == "success":
             status = await rpa_service.get_status()
             logger.info(f"Login monitoring: Broadcasting success status: {status}")
+
+            # ========== 新增：包含账号同步信息 ==========
+            status["account_id"] = result.get("account_id")
+            status["is_new_account"] = result.get("is_new_account")
+            status["sync_message"] = result.get("sync_message")
+
+            if result.get("account_id"):
+                logger.info(f"Login monitoring: Account synced - ID: {result.get('account_id')}, New: {result.get('is_new_account')}")
+            # =============================================
+
             await broadcast_status(status)
         elif result["status"] == "timeout":
             logger.warning("Login monitoring: Login timed out after 5 minutes")
@@ -372,3 +405,75 @@ async def monitor_and_broadcast_login():
 
     except Exception as e:
         logger.error(f"Login monitoring: Exception occurred: {e}", exc_info=True)
+
+
+async def monitor_and_broadcast_account_login(account_id: int):
+    """后台任务：监控账号登录过程并广播结果"""
+    try:
+        from app.services.account_service import AccountService
+
+        logger.info(f"Account login monitoring: Starting to monitor login for account {account_id}...")
+        result = await rpa_service.monitor_login_for_account(account_id)
+        logger.info(f"Account login monitoring: Result = {result}")
+
+        if result["status"] == "success":
+            # 获取账号信息
+            conn = await db.get_connection()
+            account_service = AccountService(conn)
+            account = await account_service.get_by_id(account_id)
+
+            # 广播登录成功
+            await manager.broadcast({
+                "type": "account_login_success",
+                "data": {
+                    "account_id": account_id,
+                    "account_name": account.username if account else "Unknown",
+                    "user_info": result.get("user_info"),
+                    "timestamp": rpa_service.get_now_iso()
+                }
+            })
+            logger.info(f"Account login monitoring: Broadcasted success for account {account_id}")
+
+        elif result["status"] == "timeout":
+            logger.warning(f"Account login monitoring: Login timeout for account {account_id}")
+            # 广播超时状态
+            await manager.broadcast({
+                "type": "account_login_failed",
+                "data": {
+                    "account_id": account_id,
+                    "reason": "Login timeout (5 minutes)"
+                }
+            })
+
+        elif result["status"] == "cancelled":
+            logger.info(f"Account login monitoring: Login cancelled for account {account_id}")
+            await manager.broadcast({
+                "type": "account_login_failed",
+                "data": {
+                    "account_id": account_id,
+                    "reason": "Browser was closed"
+                }
+            })
+
+        elif result["status"] == "error":
+            error_msg = result.get("message", "Unknown error")
+            logger.error(f"Account login monitoring: Error during login for account {account_id}: {error_msg}")
+            await manager.broadcast({
+                "type": "account_login_failed",
+                "data": {
+                    "account_id": account_id,
+                    "reason": error_msg
+                }
+            })
+        else:
+            logger.info(f"Account login monitoring: Login ended with status: {result['status']}")
+
+    except Exception as e:
+        logger.error(f"Account login monitoring: Exception occurred for account {account_id}: {e}", exc_info=True)
+        await manager.broadcast({
+            "type": "account_login_failed",
+            "data": {
+                "account_id": account_id,
+                "reason": str(e)
+            }
+        })

@@ -14,6 +14,7 @@ from .api import (
     auth,  # Import auth router
     hr,  # Import hr router
 )
+from .api.account_groups import router as account_groups_router
 from .api.websocket_logs import websocket_log_stream
 from .core.config import settings
 from .core.database import db, init_database
@@ -108,6 +109,7 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(auth.router)  # Add auth router with WebSocket
 app.include_router(hr.router)  # Add hr router
+app.include_router(account_groups_router)  # Add account groups router
 
 
 # WebSocket endpoint for log streaming
